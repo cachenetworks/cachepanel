@@ -2,6 +2,12 @@
 
 > **Secure server control, the Cache way.**
 
+> **⚠ Proprietary software.** This source is published for installation,
+> use of the official distribution, and public auditability **only**.
+> You may **not** copy, modify, fork, redistribute, host as a service, or
+> use it to train AI models. See [LICENSE](./LICENSE) for the full terms.
+> For commercial licensing, contact **support@cachepanel.lol**.
+
 CachePanel is a dark-mode, Cache-themed Ubuntu server management panel. It
 combines a browser terminal, a file manager, server stats, and a multi-user
 admin dashboard behind Discord OAuth — all in a single Docker-friendly Next.js

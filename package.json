@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "description": "CachePanel — Secure server control, the Cache way.",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Cache Networks <support@cachepanel.lol>",
   "scripts": {
     "dev": "node server.js",
     "build": "next build",

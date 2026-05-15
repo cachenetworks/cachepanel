@@ -1,0 +1,96 @@
+CachePanel Proprietary License
+
+Copyright (c) 2026 Cache Networks. All Rights Reserved.
+
+This software, the accompanying source code, configuration, build artifacts,
+container images, installer scripts, documentation, and any related materials
+(collectively, the "Software") are the exclusive property of Cache Networks
+(the "Owner").
+
+The Software is published in a publicly accessible repository solely for the
+following limited purposes:
+
+  (a) installation and use of the official, unmodified binary distribution
+      and Docker image of CachePanel by end users on infrastructure they
+      own or control; and
+
+  (b) public review and audit of the source code for security, transparency,
+      and educational reading.
+
+NO LICENSE OR OTHER RIGHT IS GRANTED, BY IMPLICATION, ESTOPPEL, OR OTHERWISE,
+TO ANY INTELLECTUAL PROPERTY OF THE OWNER. Without the prior, express, written
+permission of the Owner, you may NOT:
+
+  1. Copy, reproduce, or duplicate the Software, in whole or in part, for any
+     purpose other than installation and use of the official, unmodified
+     distribution as described in (a) above.
+
+  2. Modify, adapt, translate, port, fork, derive works from, or create
+     derivative works based on the Software.
+
+  3. Redistribute, sublicense, sell, lease, lend, host as a service, publish,
+     transmit, or otherwise make the Software available to any third party,
+     including via any "as-a-service" or hosted offering.
+
+  4. Reverse engineer, decompile, disassemble, or attempt to derive the source
+     code of any compiled or binary portion of the Software, except to the
+     extent such activity is expressly permitted by applicable law
+     notwithstanding this restriction.
+
+  5. Remove, alter, or obscure any proprietary notice, copyright notice,
+     trademark, branding, or attribution included in or on the Software.
+
+  6. Use the Software, the names "CachePanel", "Cache Networks", or any
+     associated logo, mark, or branding to endorse, promote, or identify any
+     other product, service, or organization.
+
+  7. Use the Software, in whole or in part, to train, evaluate, fine-tune, or
+     otherwise develop any machine learning model, large language model,
+     dataset, or AI system, whether commercial or non-commercial.
+
+  8. Use the Software for any unlawful purpose or in any manner that violates
+     any applicable law, regulation, or third-party right.
+
+PUBLIC VISIBILITY DOES NOT GRANT RIGHTS. The fact that this repository is
+publicly viewable on a code hosting platform (such as GitHub) does not, in
+itself, grant any license, permission, or right to use, copy, modify, or
+redistribute the Software. The act of cloning, forking, downloading, or
+otherwise obtaining a copy of the Software does NOT confer any rights beyond
+those expressly stated in this License.
+
+CONTRIBUTIONS. Any contribution submitted by you to the Owner (whether by
+pull request, patch, issue attachment, or otherwise) shall be deemed assigned
+to the Owner upon submission, and the Owner may incorporate, modify, or
+discard such contribution at its sole discretion without obligation of
+attribution, compensation, or notice.
+
+TERMINATION. Any breach of this License automatically and immediately
+terminates all rights granted hereunder. Upon termination, you must cease all
+use of the Software and destroy all copies in your possession or control.
+
+NO WARRANTY. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+NON-INFRINGEMENT. THE ENTIRE RISK ARISING OUT OF THE USE OR PERFORMANCE OF
+THE SOFTWARE REMAINS WITH YOU.
+
+LIMITATION OF LIABILITY. IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES
+(INCLUDING BUT NOT LIMITED TO LOSS OF PROFITS, LOSS OF DATA, BUSINESS
+INTERRUPTION, OR PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES), HOWEVER CAUSED
+AND ON ANY THEORY OF LIABILITY, ARISING IN ANY WAY OUT OF THE USE OF THE
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+GOVERNING LAW. This License shall be governed by and construed in accordance
+with the laws of the jurisdiction in which the Owner is established, without
+regard to its conflict-of-law provisions. Any dispute arising out of or in
+connection with this License shall be resolved in the courts of that
+jurisdiction, and you irrevocably consent to the exclusive jurisdiction and
+venue of those courts.
+
+ENTIRE AGREEMENT. This License constitutes the entire agreement between you
+and the Owner with respect to the Software and supersedes all prior or
+contemporaneous understandings regarding such subject matter.
+
+For licensing inquiries, commercial use, or written permission, contact:
+support@cachepanel.lol
