@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Role is one of "OWNER" | "ADMIN" — enforced at the TypeScript layer
+// because SQLite doesn't support native enums.
+// UserStatus is one of "PENDING" | "APPROVED" | "DISABLED".
+
+model User {
+  id          String    @id @default(cuid())
+  discordId   String    @unique
+  username    String
+  avatar      String?
+  email       String?
+  role        String    @default("ADMIN")
+  status      String    @default("PENDING")
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Per-user SSH (Option A). When `sshAccess` is true, CachePanel has
+  // provisioned a Linux account on the host and the browser terminal SSHes
+  // as that user. `sshSudo` enables passwordless sudo for them.
+  sshUsername    String?
+  sshAccess      Boolean @default(false)
+  sshSudo        Boolean @default(false)
+  sshProvisioned Boolean @default(false)
+
+  auditLogs        AuditLog[]
+  terminalSessions TerminalSession[]
+  fileActions      FileAction[]
+
+  @@index([role])
+  @@index([status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  target    String?
+  // JSON-encoded string (SQLite has no native JSON column).
+  metadata  String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model TerminalSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+  ipAddress String?
+  status    String   @default("active")
+
+  @@index([userId])
+  @@index([status])
+}
+
+model FileAction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  path      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model AppSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+// Multi-server: every host CachePanel can manage. The first row is auto-
+// created as the "primary" — the box CachePanel itself runs on — and is
+// flagged isPrimary=true. Primary's metadata is locked in the UI.
+model Server {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  hostname       String
+  port           Int      @default(22)
+  defaultUser    String
+  // Filename inside ./secrets/ for the global SSH key + known_hosts.
+  // (Per-user provisioned accounts override this on a per-(user,server) basis.)
+  keyName        String   @default("cachepanel_id_ed25519")
+  knownHostsName String   @default("known_hosts")
+  // Comma-separated freeform tags for grouping in the picker.
+  tags           String   @default("")
+  isPrimary      Boolean  @default(false)
+  notes          String?
+  addedById      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  provisions     UserServerProvision[]
+
+  @@index([isPrimary])
+}
+
+// Per-(user,server) provisioning state. When OWNER clicks "provision SSH" for
+// a user on a given server, we create one of these rows so the terminal knows
+// which Linux account to SSH as for that user on that host.
+model UserServerProvision {
+  id           String   @id @default(cuid())
+  userId       String
+  serverId     String
+  sshUsername  String
+  sshSudo      Boolean  @default(false)
+  provisioned  Boolean  @default(false)
+  lastError    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  server       Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, serverId])
+  @@index([serverId])
+}
+
+// Saved database connection profiles (DB management section).
+// `password` is stored encrypted with NEXTAUTH_SECRET-derived AES-256-GCM.
+model DbConnection {
+  id          String   @id @default(cuid())
+  name        String
+  // 'mysql' | 'mariadb' | 'postgres' | 'sqlite'
+  driver      String
+  host        String?
+  port        Int?
+  username    String?
+  password    String?   // ciphertext, nullable for sqlite
+  database    String?   // for sqlite this is an absolute file path
+  ssl         Boolean   @default(false)
+  // OWNER-only when true (ADMINs can't open this profile at all)
+  ownerOnly   Boolean   @default(false)
+  // OWNER-only when true (everyone can connect, but no one can run write queries)
+  readOnly    Boolean   @default(false)
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([driver])
+}

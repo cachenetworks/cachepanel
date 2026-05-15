@@ -1,0 +1,39 @@
+node_modules
+.next
+.git
+.gitignore
+.gitattributes
+.env
+.env.local
+.env.*.local
+*.log
+*.pid
+README.md
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# IDE/OS junk
+.vscode
+.idea
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# Local dev artifacts
+data
+secrets
+secrets-users
+prisma/dev.db
+prisma/dev.db-journal
+coverage
+.next
+out
+dist
+build
+
+# Tooling
+.eslintcache
+.tsbuildinfo
+*.tsbuildinfo

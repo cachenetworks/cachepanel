@@ -1,0 +1,67 @@
+name: cachepanel
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cachepanel:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # SQLite file lives in a named volume mounted at /app/data.
+      DATABASE_URL: file:/app/data/cachepanel.db
+      APP_PORT: 8992
+      HOSTNAME: 0.0.0.0
+    # The container entrypoint detects the docker socket's GID at startup and
+    # adds the in-container `cache` user to it automatically — no manual
+    # DOCKER_GID needed.
+    ports:
+      - "8992:8992"
+    # Resolve 'host.docker.internal' to the Docker host on Linux. Required so
+    # the terminal can SSH into the host as the real server. On Docker Desktop
+    # (Mac/Windows) this is automatic but keeping the entry is harmless.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Persist the SQLite database across rebuilds.
+      - cachepanel-data:/app/data
+      # Host directories the file manager + terminal can manage.
+      - cachepanel-home:/home/cache
+      - cachepanel-srv:/srv
+      - cachepanel-www:/var/www
+      # SSH keys + known_hosts for terminal SSH-to-host mode. Read-only.
+      - ./secrets:/run/secrets:ro
+      # Per-user generated SSH keys (Option A). Writable: the panel creates
+      # keypairs here as OWNER provisions users from the admin UI. Lives at
+      # a sibling path (not nested under /run/secrets) because that mount is
+      # read-only and Docker can't create a mountpoint inside it.
+      - ./secrets-users:/run/secrets-users
+      # Per-server SSH keys generated at runtime by the "Add server" wizard.
+      # Writable, owned by UID 1001 inside the container.
+      - ./secrets-servers:/run/secrets-servers
+      # Docker socket — read/write so OWNER can start/stop/restart/remove
+      # containers from the panel. Drop the `:rw` (or remove the whole line)
+      # to make the Docker page read-only.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Drop everything except the few caps the entrypoint needs to:
+    #   - chown bind-mounted dirs to the cache user (CAP_CHOWN, CAP_FOWNER)
+    #   - add cache to the host's docker group at startup (CAP_SETGID)
+    #   - drop privilege to the cache user via gosu (CAP_SETUID, CAP_SETGID)
+    # Once exec'd, the node process runs as UID 1001 with no caps.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - SETUID
+      - SETGID
+    # no-new-privileges would block gosu's setuid call after caps are dropped;
+    # the entrypoint still drops to a non-root UID, which is the actual goal.
+
+volumes:
+  cachepanel-data:
+  cachepanel-home:
+  cachepanel-srv:
+  cachepanel-www:
