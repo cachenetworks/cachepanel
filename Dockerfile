@@ -24,6 +24,9 @@ RUN npm run build
 
 # ---- runtime ----
 FROM node:20-bookworm-slim AS runner
+LABEL org.opencontainers.image.source="https://github.com/cachenetworks/cachepanel"
+LABEL org.opencontainers.image.description="CachePanel — self-hosted dark-mode server control panel"
+LABEL org.opencontainers.image.licenses="LicenseRef-CachePanel-Proprietary"
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

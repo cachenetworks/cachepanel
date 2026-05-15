@@ -28,12 +28,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Personal-account GHCR pushes require a PAT with `write:packages`
+      # because GITHUB_TOKEN can't create a brand-new package under a user
+      # namespace. Falls back to GITHUB_TOKEN if GHCR_PAT isn't configured
+      # (works for org-owned repos and for subsequent pushes once the package
+      # is already linked to the repo).
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
         id: meta
