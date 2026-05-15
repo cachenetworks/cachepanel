@@ -4,7 +4,7 @@
   "private": true,
   "description": "CachePanel — Secure server control, the Cache way.",
   "license": "SEE LICENSE IN LICENSE",
-  "author": "Cache Networks <support@cachepanel.lol>",
+  "author": "Cache Networks (Discord: cache_og)",
   "scripts": {
     "dev": "node server.js",
     "build": "next build",

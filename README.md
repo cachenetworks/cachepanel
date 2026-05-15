@@ -6,7 +6,8 @@
 > use of the official distribution, and public auditability **only**.
 > You may **not** copy, modify, fork, redistribute, host as a service, or
 > use it to train AI models. See [LICENSE](./LICENSE) for the full terms.
-> For commercial licensing, contact **support@cachepanel.lol**.
+>
+> Questions, support, or licensing? **DM me on Discord: `cache_og`**
 
 CachePanel is a dark-mode, Cache-themed Ubuntu server management panel. It
 combines a browser terminal, a file manager, server stats, and a multi-user
@@ -351,4 +352,7 @@ the terminal under Docker or WSL.
 
 ## License
 
-MIT — do as you wish, no warranty. Be kind, audit your code, run as non-root.
+Proprietary — published for install + audit only. No copying, modification,
+forking, redistribution, or AI training. Full terms in [LICENSE](./LICENSE).
+
+Need permission, support, or want to chat? Discord: **`cache_og`**
