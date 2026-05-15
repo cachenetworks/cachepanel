@@ -141,6 +141,52 @@ export async function getHostGpus(server?: Server | null): Promise<HostGpu[]> {
     return gpus;
   }
 
+  // Last-resort fallback for hosts without nvidia-smi or lspci (Alpine base, minimal
+  // Pi OS, locked-down containers). Reads PCI vendor IDs from /sys/class/drm.
+  // Vendor IDs: 0x10de = NVIDIA, 0x1002 = AMD, 0x8086 = Intel.
+  const sysGpu = await runOnHost(
+    "for d in /sys/class/drm/card*/device; do [ -r \"$d/vendor\" ] && printf '%s|%s\\n' \"$(cat $d/vendor 2>/dev/null)\" \"$(cat $d/device 2>/dev/null)\"; done | sort -u",
+    { serverId: server?.id },
+  );
+  if (sysGpu.code === 0 && sysGpu.stdout.trim()) {
+    const vendorName = (id: string): string | null => {
+      switch (id.toLowerCase()) {
+        case '0x10de':
+          return 'NVIDIA';
+        case '0x1002':
+          return 'AMD';
+        case '0x8086':
+          return 'Intel';
+        default:
+          return null;
+      }
+    };
+    const gpus: HostGpu[] = sysGpu.stdout
+      .trim()
+      .split('\n')
+      .map((line) => {
+        const [vendorId, deviceId] = line.split('|').map((s) => s.trim());
+        const vendor = vendorName(vendorId ?? '');
+        return {
+          vendor,
+          model: vendor ? `${vendor} GPU (${deviceId ?? '?'})` : `GPU (${vendorId ?? '?'}:${deviceId ?? '?'})`,
+          driver: null,
+          vramMb: null,
+          vramUsedMb: null,
+          vramFreeMb: null,
+          loadPct: null,
+          memLoadPct: null,
+          tempC: null,
+          powerW: null,
+        };
+      })
+      .filter((g) => g.vendor !== null || g.model !== null);
+    if (gpus.length > 0) {
+      setCached(`gpus:${sid}`, gpus);
+      return gpus;
+    }
+  }
+
   setCached(`gpus:${sid}`, []);
   return [];
 }
