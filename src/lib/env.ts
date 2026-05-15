@@ -1,4 +1,48 @@
 import { z } from 'zod';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+// Auto-load .env if the runtime didn't (e.g. Pterodactyl egg whose startup
+// command forgot to `set -a; . ./.env`). Idempotent: only sets vars that
+// aren't already present in process.env, so a real shell export still wins.
+function loadDotEnvOnce() {
+  if ((globalThis as { __cp_env_loaded?: boolean }).__cp_env_loaded) return;
+  (globalThis as { __cp_env_loaded?: boolean }).__cp_env_loaded = true;
+
+  const candidates = [
+    process.env.DOTENV_PATH,
+    resolve(process.cwd(), '.env'),
+  ].filter((p): p is string => Boolean(p));
+
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    try {
+      const content = readFileSync(path, 'utf8');
+      for (const rawLine of content.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) continue;
+        const eq = line.indexOf('=');
+        if (eq === -1) continue;
+        const key = line.slice(0, eq).trim();
+        if (!key || key in process.env) continue;
+        let value = line.slice(eq + 1).trim();
+        if (
+          (value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))
+        ) {
+          value = value.slice(1, -1);
+        }
+        process.env[key] = value;
+      }
+      return;
+    } catch {
+      // Ignore — fall through to schema validation, which will surface a
+      // clearer "VAR is required" error than a parse failure.
+    }
+  }
+}
+
+loadDotEnvOnce();
 
 const schema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
