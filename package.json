@@ -1,6 +1,6 @@
 {
   "name": "cachepanel",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "private": true,
   "description": "CachePanel — Secure server control, the Cache way.",
   "license": "SEE LICENSE IN LICENSE",
