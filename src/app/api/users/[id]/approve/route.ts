@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { audit } from '@/lib/audit';
+import { emitAlert } from '@/lib/alerts';
 import { adminCanApproveUsers } from '@/lib/settings';
 import { getClientIp } from '@/lib/ip';
 
@@ -38,6 +39,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     target: target.id,
     metadata: { username: target.username, by: auth.user.username },
     ipAddress: getClientIp(req),
+  });
+  void emitAlert('user.approved', {
+    description: `**${target.username}** was approved by **${auth.user.username}**.`,
+    fields: [{ name: 'New role', value: updated.role, inline: true }],
   });
 
   return NextResponse.json({ user: updated });

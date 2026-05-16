@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { audit } from '@/lib/audit';
+import { emitAlert } from '@/lib/alerts';
 import { getClientIp } from '@/lib/ip';
 import { z } from 'zod';
 
@@ -53,6 +54,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     target: target.id,
     metadata: { from: target.role, to: role, username: target.username },
     ipAddress: getClientIp(req),
+  });
+  void emitAlert('user.role_changed', {
+    description: `**${target.username}** role changed: **${target.role} → ${role}** (by ${auth.user.username}).`,
+    fields: [
+      { name: 'From', value: target.role, inline: true },
+      { name: 'To', value: role, inline: true },
+    ],
   });
 
   return NextResponse.json({ user: updated });

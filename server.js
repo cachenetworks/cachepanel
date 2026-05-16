@@ -496,4 +496,36 @@ function clientIp(req) {
       console.warn('  ⚠  node-pty unavailable — /terminal will be disabled.');
     }
   });
+
+  // ---- Alert pollers (Discord webhook alerts feature) ------------------
+  // Calls our own /api/internal/alerts/poll endpoint every 60s with an
+  // HMAC-signed header. The route runs the TS poller and returns.
+  // Skip if NEXTAUTH_SECRET is unset (dev / misconfigured).
+  if (process.env.NEXTAUTH_SECRET) {
+    const crypto = require('node:crypto');
+    const internalToken = crypto
+      .createHmac('sha256', process.env.NEXTAUTH_SECRET)
+      .update('alerts-poll')
+      .digest('hex');
+    const pollUrl = `http://127.0.0.1:${port}/api/internal/alerts/poll`;
+    const pollOnce = async () => {
+      try {
+        await fetch(pollUrl, {
+          method: 'POST',
+          headers: { 'x-cachepanel-internal': internalToken },
+        });
+      } catch (err) {
+        // Pre-listen ticks fail loudly otherwise; once the server is up the
+        // calls succeed and we go silent.
+        if (err && err.code !== 'ECONNREFUSED') {
+          console.error('[alerts] poll trigger failed:', err.message || err);
+        }
+      }
+    };
+    // First tick after 30s (let Next.js finish warming), then every 60s.
+    setTimeout(() => {
+      pollOnce();
+      setInterval(pollOnce, 60_000);
+    }, 30_000);
+  }
 })();

@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import type { PanelUser } from '@/lib/session';
+import { AlertsCard } from './alerts-card';
 
 interface SettingsResponse {
   settings: {
@@ -285,6 +286,8 @@ export function SettingsClient({ user }: { user: PanelUser }) {
           </CardBody>
         </Card>
       </div>
+
+      <AlertsCard isOwner={isOwner} />
     </div>
   );
 }

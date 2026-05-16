@@ -3,6 +3,7 @@ import DiscordProvider from 'next-auth/providers/discord';
 import { prisma } from './prisma';
 import { getEnv, getAllowedRoles, getAllowedUserIds } from './env';
 import { audit } from './audit';
+import { emitAlert } from './alerts';
 
 const DISCORD_SCOPES = ['identify', 'email', 'guilds', 'guilds.members.read'];
 
@@ -154,6 +155,10 @@ function buildOptions(): NextAuthOptions {
             target: discordId,
             metadata: { username },
           });
+          void emitAlert('login.success', {
+            description: `**${username}** logged in.`,
+            fields: [{ name: 'Role', value: existing.role, inline: true }],
+          });
           return true;
         }
 
@@ -174,6 +179,10 @@ function buildOptions(): NextAuthOptions {
             action: 'login.success',
             target: discordId,
             metadata: { username, bootstrap: true },
+          });
+          void emitAlert('login.success', {
+            description: `**${username}** is the first user — promoted to OWNER.`,
+            fields: [{ name: 'Role', value: 'OWNER (bootstrap)', inline: true }],
           });
           return true;
         }
