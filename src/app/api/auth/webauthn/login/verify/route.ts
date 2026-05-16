@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { verifyAuthenticationResponse } from '@simplewebauthn/server';
-import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 import { z } from 'zod';
+
+// AuthenticationResponseJSON moved between subpaths across @simplewebauthn
+// minor versions; inferring from the function signature avoids the import.
+type AuthenticationResponseJSON = Parameters<typeof verifyAuthenticationResponse>[0]['response'];
 import { authorize } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { getWebAuthnEnv } from '@/lib/webauthn-env';

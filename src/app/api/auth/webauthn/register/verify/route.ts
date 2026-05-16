@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { randomBytes, createHash } from 'node:crypto';
 import { verifyRegistrationResponse } from '@simplewebauthn/server';
-import type { RegistrationResponseJSON } from '@simplewebauthn/server';
 import { z } from 'zod';
+
+// Inferred from the function signature — see note in login/verify/route.ts.
+type RegistrationResponseJSON = Parameters<typeof verifyRegistrationResponse>[0]['response'];
 import { authorize } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { audit } from '@/lib/audit';

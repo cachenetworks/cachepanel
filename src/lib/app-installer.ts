@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { prisma } from './prisma';
 import { runOnHost } from './host-probe';
 import { hostWriteText } from './host-fs';
-import { getCatalogApp, type CatalogApp, type AppVar } from '@/data/app-catalog';
+import { getCatalogApp, type CatalogApp } from '@/data/app-catalog';
 
 const APPS_ROOT = process.env.APPS_ROOT ?? '/opt/cachepanel/apps';
 

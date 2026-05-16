@@ -29,9 +29,7 @@ export async function POST() {
     timeout: 60_000,
     attestationType: 'none',
     excludeCredentials: existing.map((a) => ({
-      id: new Uint8Array(a.credentialId).buffer
-        ? Buffer.from(a.credentialId).toString('base64url')
-        : '',
+      id: Buffer.from(a.credentialId).toString('base64url'),
       transports: a.transports
         ? (a.transports.split(',') as ('usb' | 'nfc' | 'ble' | 'internal' | 'hybrid')[])
         : undefined,
