@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createReadStream, statSync } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import { resolve } from 'node:path';
 import { authorize } from '@/lib/api-auth';
 
@@ -20,12 +20,11 @@ export async function GET(_req: Request, { params }: { params: { filename: strin
     return NextResponse.json({ error: 'Path traversal blocked' }, { status: 400 });
   }
   try {
-    const s = statSync(path);
-    const stream = createReadStream(path);
-    return new NextResponse(stream as unknown as ReadableStream, {
+    const buf = await fs.readFile(path);
+    return new NextResponse(new Uint8Array(buf), {
       headers: {
         'Content-Type': 'application/x-asciicast',
-        'Content-Length': String(s.size),
+        'Content-Length': String(buf.length),
         'Content-Disposition': `inline; filename="${params.filename}"`,
       },
     });

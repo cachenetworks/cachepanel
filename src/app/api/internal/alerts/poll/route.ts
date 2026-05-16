@@ -3,6 +3,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getEnv } from '@/lib/env';
 import { runAlertPollers } from '@/lib/alert-pollers';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 // Called from server.js (same process, separate JS file) on a 60s interval.
 // Auth: a constant-time HMAC of NEXTAUTH_SECRET — keeps random internet
 // traffic from triggering polls, but doesn't try to be cryptographically

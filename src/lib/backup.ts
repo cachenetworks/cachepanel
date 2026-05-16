@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { createReadStream, createWriteStream, statSync } from 'node:fs';
+import { createReadStream, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 
@@ -98,6 +98,15 @@ export function getBackupStream(filename: string) {
   return createReadStream(p);
 }
 
+export async function getBackupBuffer(filename: string): Promise<Buffer> {
+  if (!/^[a-zA-Z0-9._-]+\.tar\.gz$/.test(filename)) {
+    throw new Error('Invalid backup filename');
+  }
+  const p = resolve(BACKUPS_DIR, filename);
+  if (!p.startsWith(resolve(BACKUPS_DIR))) throw new Error('Path traversal blocked');
+  return fs.readFile(p);
+}
+
 export async function getBackupSize(filename: string): Promise<number> {
   if (!/^[a-zA-Z0-9._-]+\.tar\.gz$/.test(filename)) {
     throw new Error('Invalid backup filename');
@@ -108,6 +117,3 @@ export async function getBackupSize(filename: string): Promise<number> {
   return s.size;
 }
 
-// Quick helper — silence unused-import warning for createWriteStream if we
-// add S3 streaming in v1.6.
-export const _createWriteStream = createWriteStream;

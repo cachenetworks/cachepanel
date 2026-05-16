@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { authorize } from '@/lib/api-auth';
 import { sendTestAlert } from '@/lib/alerts';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 const schema = z.object({
   url: z.string().url(),
 });

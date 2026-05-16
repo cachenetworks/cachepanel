@@ -4,6 +4,9 @@ import { authorize } from '@/lib/api-auth';
 import { getAlertSettings, setAlertSettings, type AlertEvent } from '@/lib/alerts';
 import { audit } from '@/lib/audit';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 const ALL_EVENTS: AlertEvent[] = [
   'login.success',
   'user.approved',

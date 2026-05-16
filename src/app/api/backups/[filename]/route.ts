@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/api-auth';
 import { audit } from '@/lib/audit';
-import { deleteBackup, getBackupSize, getBackupStream } from '@/lib/backup';
+import { deleteBackup, getBackupBuffer } from '@/lib/backup';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -11,12 +11,11 @@ export async function GET(_req: Request, { params }: { params: { filename: strin
   if (!auth.ok) return auth.response;
 
   try {
-    const size = await getBackupSize(params.filename);
-    const stream = getBackupStream(params.filename);
-    return new NextResponse(stream as unknown as ReadableStream, {
+    const buf = await getBackupBuffer(params.filename);
+    return new NextResponse(new Uint8Array(buf), {
       headers: {
         'Content-Type': 'application/gzip',
-        'Content-Length': String(size),
+        'Content-Length': String(buf.length),
         'Content-Disposition': `attachment; filename="${params.filename}"`,
       },
     });
