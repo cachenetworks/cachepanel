@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import {
+  Activity,
   AlertTriangle,
   CheckCircle2,
   Loader2,
@@ -197,6 +198,12 @@ export function ServersClient({ role }: { role: 'OWNER' | 'ADMIN' }) {
                     ))}
                 </div>
                 <div className="flex items-center justify-end gap-1">
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={`/admin/servers/${s.id}/health`}>
+                      <Activity className="h-3 w-3" />
+                      Health
+                    </a>
+                  </Button>
                   <Button variant="outline" size="sm" disabled={testing === s.id} onClick={() => testServer(s)}>
                     {testing === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plug className="h-3 w-3" />}
                     Test

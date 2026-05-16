@@ -13,13 +13,33 @@ function csvEscape(value: unknown): string {
   return s;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const auth = await authorize({ requireOwner: true });
   if (!auth.ok) return auth.response;
 
+  const url = new URL(req.url);
+  const action = url.searchParams.get('action')?.trim() || undefined;
+  const userId = url.searchParams.get('userId')?.trim() || undefined;
+  const from = url.searchParams.get('from')?.trim() || undefined;
+  const to = url.searchParams.get('to')?.trim() || undefined;
+
+  const where: {
+    action?: { contains: string };
+    userId?: string;
+    createdAt?: { gte?: Date; lte?: Date };
+  } = {};
+  if (action) where.action = { contains: action };
+  if (userId) where.userId = userId;
+  if (from || to) {
+    where.createdAt = {};
+    if (from) where.createdAt.gte = new Date(from);
+    if (to) where.createdAt.lte = new Date(to);
+  }
+
   const logs = await prisma.auditLog.findMany({
+    where,
     orderBy: { createdAt: 'desc' },
-    take: 10000,
+    take: 50000,
     include: { user: { select: { username: true } } },
   });
 

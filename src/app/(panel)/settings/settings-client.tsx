@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import type { PanelUser } from '@/lib/session';
 import { AlertsCard } from './alerts-card';
+import { BackupsCard } from './backups-card';
 
 interface SettingsResponse {
   settings: {
@@ -288,6 +289,7 @@ export function SettingsClient({ user }: { user: PanelUser }) {
       </div>
 
       <AlertsCard isOwner={isOwner} />
+      <BackupsCard isOwner={isOwner} />
     </div>
   );
 }

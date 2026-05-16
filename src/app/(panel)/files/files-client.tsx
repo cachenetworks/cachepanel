@@ -111,6 +111,7 @@ export function FilesClient() {
 
   // Modals
   const [editing, setEditing] = React.useState<{ path: string; content: string; sensitive: boolean } | null>(null);
+  const [tailing, setTailing] = React.useState<{ path: string } | null>(null);
   const [createOpen, setCreateOpen] = React.useState<null | 'file' | 'folder'>(null);
   const [createName, setCreateName] = React.useState('');
   const [renameTarget, setRenameTarget] = React.useState<Item | null>(null);
@@ -400,6 +401,12 @@ export function FilesClient() {
                             <Edit3 className="h-4 w-4" />
                             Edit
                           </DropdownMenuItem>
+                          {/\.(log|txt|out|err)$/i.test(it.name) ? (
+                            <DropdownMenuItem onClick={() => setTailing({ path: it.path })}>
+                              <Edit3 className="h-4 w-4" />
+                              Live tail
+                            </DropdownMenuItem>
+                          ) : null}
                           <DropdownMenuItem asChild>
                             <a
                               href={withServer(`/api/files/download?path=${encodeURIComponent(it.path)}`, serverId)}
@@ -523,6 +530,108 @@ export function FilesClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {tailing ? (
+        <LogTailModal path={tailing.path} serverId={serverId} onClose={() => setTailing(null)} />
+      ) : null}
+    </div>
+  );
+}
+
+function LogTailModal({
+  path,
+  serverId,
+  onClose,
+}: {
+  path: string;
+  serverId: string | null;
+  onClose: () => void;
+}) {
+  const [content, setContent] = React.useState('');
+  const [offset, setOffset] = React.useState(0);
+  const [paused, setPaused] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const preRef = React.useRef<HTMLPreElement | null>(null);
+
+  React.useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (!active) return;
+      try {
+        const q = new URLSearchParams({ path, offset: String(offset) });
+        if (serverId) q.set('server', serverId);
+        const res = await fetch(`/api/files/tail?${q.toString()}`, { cache: 'no-store' });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error ?? 'tail failed');
+        if (!active) return;
+        if (body.truncated) {
+          setContent((c) => c + '\n--- [file rotated/truncated, re-reading] ---\n' + (body.content ?? ''));
+        } else if (body.content) {
+          setContent((c) => c + body.content);
+        }
+        setOffset(body.offset ?? body.size ?? offset);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        if (active && !paused) timer = setTimeout(tick, 2000);
+      }
+    };
+    if (!paused) tick();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [path, serverId, offset, paused]);
+
+  React.useEffect(() => {
+    // Auto-scroll to bottom on new content unless user has scrolled away.
+    const el = preRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    if (distanceFromBottom < 80) el.scrollTop = el.scrollHeight;
+  }, [content]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex h-[80vh] w-full max-w-4xl flex-col rounded-xl border border-neon-green/30 bg-bg-1 p-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-2 flex items-center gap-2">
+          <span className="truncate font-mono text-xs text-white/70">{path}</span>
+          <span className="ml-auto text-[10px] text-white/40">
+            {paused ? 'paused' : 'live · 2s poll'}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => setPaused((p) => !p)}>
+            {paused ? 'Resume' : 'Pause'}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { setContent(''); }}>
+            Clear
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+        {error ? (
+          <div className="mb-2 rounded-md border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-200">
+            {error}
+          </div>
+        ) : null}
+        <pre
+          ref={preRef}
+          className="flex-1 overflow-auto rounded-md border border-white/10 bg-black/60 p-3 font-mono text-[11px] leading-relaxed text-white/85"
+        >
+          {content || '(waiting for output…)'}
+        </pre>
+      </div>
     </div>
   );
 }

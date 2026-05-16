@@ -15,7 +15,8 @@ secrets-users/
 secrets-servers/
 
 # --- Runtime data ---
-data/
+# Anchored to repo root — don't accidentally ignore src/data/, the catalog dir.
+/data/
 *.db
 *.db-journal
 *.sqlite

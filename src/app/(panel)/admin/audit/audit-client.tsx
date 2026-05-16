@@ -53,15 +53,24 @@ export function AuditClient({ role }: { role: 'OWNER' | 'ADMIN' }) {
   const { toast } = useToast();
   const [logs, setLogs] = React.useState<Log[] | null>(null);
   const [filter, setFilter] = React.useState('');
+  const [fromDate, setFromDate] = React.useState('');
+  const [toDate, setToDate] = React.useState('');
   const [confirmClear, setConfirmClear] = React.useState(false);
   const [refreshKey, setRefreshKey] = React.useState(0);
+
+  const buildParams = React.useCallback(() => {
+    const params = new URLSearchParams();
+    if (filter.trim()) params.set('action', filter.trim());
+    if (fromDate) params.set('from', new Date(fromDate).toISOString());
+    if (toDate) params.set('to', new Date(toDate).toISOString());
+    return params;
+  }, [filter, fromDate, toDate]);
 
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const params = new URLSearchParams();
-        if (filter.trim()) params.set('action', filter.trim());
+        const params = buildParams();
         const res = await fetch(`/api/audit?${params.toString()}`, { cache: 'no-store' });
         if (!res.ok) throw new Error(await res.text());
         const body = (await res.json()) as { logs: Log[] };
@@ -75,7 +84,7 @@ export function AuditClient({ role }: { role: 'OWNER' | 'ADMIN' }) {
     return () => {
       cancelled = true;
     };
-  }, [filter, refreshKey, toast]);
+  }, [buildParams, refreshKey, toast]);
 
   async function clearAll() {
     try {
@@ -104,7 +113,7 @@ export function AuditClient({ role }: { role: 'OWNER' | 'ADMIN' }) {
           {role === 'OWNER' ? (
             <>
               <Button variant="outline" size="sm" asChild>
-                <a href="/api/audit/export">
+                <a href={`/api/audit/export?${buildParams().toString()}`}>
                   <Download className="h-3 w-3" />
                   Export CSV
                 </a>
@@ -119,9 +128,38 @@ export function AuditClient({ role }: { role: 'OWNER' | 'ADMIN' }) {
       </div>
 
       <Card className="p-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
-          <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by action, e.g. file.deleted" className="pl-9" />
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
+            <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by action, e.g. file.deleted" className="pl-9" />
+          </div>
+          <Input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="sm:w-40"
+            aria-label="From date"
+          />
+          <Input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="sm:w-40"
+            aria-label="To date"
+          />
+          {(filter || fromDate || toDate) ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setFilter('');
+                setFromDate('');
+                setToDate('');
+              }}
+            >
+              Clear
+            </Button>
+          ) : null}
         </div>
       </Card>
 

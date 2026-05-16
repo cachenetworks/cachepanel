@@ -143,8 +143,26 @@ model Server {
 
   provisions     UserServerProvision[]
   installedApps  InstalledApp[]
+  snapshots      ServerSnapshot[]
 
   @@index([isPrimary])
+}
+
+// Time-series rows written by the alert-poller every 60s. Used to draw the
+// per-server health charts. Rows older than 7 days are pruned by the same
+// poller (cheap; no separate cron).
+model ServerSnapshot {
+  id         String   @id @default(cuid())
+  serverId   String
+  server     Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  cpuPct     Float?
+  memPct     Float?
+  diskPct    Float?
+  loadAvg1   Float?
+  reachable  Boolean  @default(true)
+  recordedAt DateTime @default(now())
+
+  @@index([serverId, recordedAt])
 }
 
 // One-click app installations. Each row tracks a docker-compose-managed app

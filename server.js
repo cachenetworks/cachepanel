@@ -401,12 +401,66 @@ function clientIp(req) {
       }
     })();
 
+    // ---- asciinema session recording ----
+    // Writes an .cast file under /app/data/recordings/<sessionId>.cast in v2
+    // format. Disabled if RECORDINGS_DIR can't be created. Replay is wired
+    // up in the panel's /admin/audit page (v1.5 ships the recording side;
+    // replay UI lands incrementally).
+    const fsMod = require('node:fs');
+    let recordStream = null;
+    let recordStart = null;
+    const recordingsDir = process.env.RECORDINGS_DIR || '/app/data/recordings';
+    try {
+      fsMod.mkdirSync(recordingsDir, { recursive: true });
+      // The dbSessionId may not be set yet (async write above) — fall back to
+      // pid+time. We rename on close once we know the real id.
+      const tmpName = `pid${term.pid}-${Date.now()}.cast`;
+      const tmpPath = `${recordingsDir}/${tmpName}`;
+      recordStream = fsMod.createWriteStream(tmpPath, { flags: 'a' });
+      recordStart = Date.now();
+      const header = {
+        version: 2,
+        width: 120,
+        height: 30,
+        timestamp: Math.floor(recordStart / 1000),
+        env: { SHELL: shell, TERM: 'xterm-256color' },
+      };
+      recordStream.write(JSON.stringify(header) + '\n');
+      socket.data.recordingPath = tmpPath;
+    } catch (err) {
+      console.warn('[terminal] recording disabled:', err && err.message);
+    }
+
     term.onData((data) => {
       socket.emit('terminal:data', data);
+      if (recordStream && recordStart) {
+        const t = (Date.now() - recordStart) / 1000;
+        try {
+          recordStream.write(JSON.stringify([t, 'o', data]) + '\n');
+        } catch {
+          /* ignore */
+        }
+      }
     });
 
     term.onExit(({ exitCode, signal }) => {
       socket.emit('terminal:exit', { exitCode, signal });
+      if (recordStream) {
+        try {
+          recordStream.end();
+        } catch {
+          /* ignore */
+        }
+        // Rename to the real session id if we have one by now.
+        if (dbSessionId && socket.data.recordingPath) {
+          const finalPath = `${recordingsDir}/${dbSessionId}.cast`;
+          try {
+            fsMod.renameSync(socket.data.recordingPath, finalPath);
+          } catch {
+            /* leave at temp name */
+          }
+        }
+      }
       socket.disconnect(true);
     });
 

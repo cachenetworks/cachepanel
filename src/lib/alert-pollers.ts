@@ -99,6 +99,52 @@ async function pollContainers(server: ServerLite) {
   knownExited.set(server.id, current);
 }
 
+async function persistSnapshot(server: ServerLite, reachable: boolean) {
+  // Cheap single SSH round-trip: /proc/stat + /proc/meminfo + df + load.
+  // We don't actually NEED CPU here every minute — load average is cheaper
+  // and good enough for a chart. The dashboard live stats endpoint still
+  // does the heavier polling on demand.
+  let cpuPct: number | null = null;
+  let memPct: number | null = null;
+  let diskPct: number | null = null;
+  let loadAvg1: number | null = null;
+
+  if (reachable) {
+    const probe = await runOnHost(
+      "cat /proc/loadavg 2>/dev/null | awk '{print $1}'; awk '/MemTotal:/ {t=$2} /MemAvailable:/ {a=$2} END {if (t) print (1-a/t)*100}' /proc/meminfo 2>/dev/null; df -P / 2>/dev/null | awk 'NR==2{gsub(/%/,\"\",$5); print $5}'",
+      { serverId: server.id, timeoutMs: 5000 },
+    );
+    if (probe.code === 0) {
+      const [load, mem, disk] = probe.stdout.trim().split('\n');
+      loadAvg1 = parseFloat(load ?? '');
+      memPct = parseFloat(mem ?? '');
+      diskPct = parseFloat(disk ?? '');
+      // CPU% derived crudely from loadavg / cores would need /proc/cpuinfo too;
+      // leave null in v1 — chart shows load + mem + disk.
+      if (!Number.isFinite(loadAvg1)) loadAvg1 = null;
+      if (!Number.isFinite(memPct)) memPct = null;
+      if (!Number.isFinite(diskPct)) diskPct = null;
+    }
+  }
+
+  try {
+    await prisma.serverSnapshot.create({
+      data: { serverId: server.id, cpuPct, memPct, diskPct, loadAvg1, reachable },
+    });
+  } catch (err) {
+    console.error('[alert-pollers] snapshot insert failed', err);
+  }
+}
+
+async function pruneOldSnapshots() {
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60_000);
+  try {
+    await prisma.serverSnapshot.deleteMany({ where: { recordedAt: { lt: sevenDaysAgo } } });
+  } catch {
+    /* swallow — pruning is non-critical */
+  }
+}
+
 async function pollReachable(server: ServerLite) {
   const res = await runOnHost('echo ok', { serverId: server.id, timeoutMs: 8000 });
   const ticks = unreachableTicks.get(server.id) ?? 0;
@@ -142,8 +188,11 @@ export async function runAlertPollers() {
       servers.map(async (server) => {
         try {
           await pollReachable(server);
-          // Skip the rest if we already know it's down — they'd all time out.
-          if ((unreachableTicks.get(server.id) ?? 0) > 0) return;
+          const isReachable = (unreachableTicks.get(server.id) ?? 0) === 0;
+          // Always persist a snapshot — even unreachable ones get a row so the
+          // chart shows the gap.
+          await persistSnapshot(server, isReachable);
+          if (!isReachable) return;
           await pollDisk(server);
           await pollContainers(server);
         } catch (err) {
@@ -151,6 +200,8 @@ export async function runAlertPollers() {
         }
       }),
     );
+    // Prune every tick — `deleteMany` is fast and idempotent.
+    await pruneOldSnapshots();
   } finally {
     running = false;
   }
