@@ -548,7 +548,7 @@ export function FilesClient() {
           onDone={() => {
             setTransferring(null);
             // Refresh listing in case we moved (source disappears).
-            void load();
+            refresh();
           }}
         />
       ) : null}
