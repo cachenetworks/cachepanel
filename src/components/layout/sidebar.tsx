@@ -9,6 +9,8 @@ import {
   Cloud,
   Database,
   Folder,
+  KeyRound,
+  Package,
   ScrollText,
   Server,
   Settings,
@@ -31,12 +33,14 @@ const navItems: NavItem[] = [
   { href: '/terminal', label: 'Terminal', icon: <TerminalSquare className="h-4 w-4" /> },
   { href: '/files', label: 'Files', icon: <Folder className="h-4 w-4" /> },
   { href: '/docker', label: 'Docker', icon: <Box className="h-4 w-4" /> },
+  { href: '/apps', label: 'Apps', icon: <Package className="h-4 w-4" /> },
   { href: '/databases', label: 'Databases', icon: <Database className="h-4 w-4" /> },
   { href: '/tunnels', label: 'Tunnels', icon: <Cloud className="h-4 w-4" /> },
   { href: '/assistant', label: 'Assistant', icon: <Sparkles className="h-4 w-4" /> },
   { href: '/admin/servers', label: 'Servers', icon: <Server className="h-4 w-4" /> },
   { href: '/admin/users', label: 'Users', icon: <Users className="h-4 w-4" /> },
   { href: '/admin/audit', label: 'Audit log', icon: <ScrollText className="h-4 w-4" /> },
+  { href: '/account/security', label: 'Security (2FA)', icon: <KeyRound className="h-4 w-4" /> },
   { href: '/settings', label: 'Settings', icon: <Settings className="h-4 w-4" /> },
 ];
 

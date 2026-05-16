@@ -24,6 +24,25 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const target = await prisma.user.findUnique({ where: { id: params.id } });
   if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
+  // Granting ADMIN/OWNER is sensitive — require OWNER to have enrolled 2FA
+  // first (only enforced if WebAuthn is actually available on this install).
+  if (target.role !== role) {
+    const ownerKeys = await prisma.authenticator.count({ where: { userId: auth.user.id } });
+    if (ownerKeys === 0) {
+      const { getWebAuthnEnv } = await import('@/lib/webauthn-env');
+      if (getWebAuthnEnv().available) {
+        return NextResponse.json(
+          {
+            error:
+              'Enroll a 2FA security key on your account before changing roles. Visit /account/security.',
+            code: 'OWNER_2FA_REQUIRED',
+          },
+          { status: 403 },
+        );
+      }
+    }
+  }
+
   if (target.id === auth.user.id && role !== 'OWNER') {
     return NextResponse.json(
       { error: 'You cannot demote yourself. Promote another OWNER first.' },

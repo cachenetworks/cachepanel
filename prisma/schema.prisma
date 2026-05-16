@@ -34,9 +34,41 @@ model User {
   auditLogs        AuditLog[]
   terminalSessions TerminalSession[]
   fileActions      FileAction[]
+  authenticators   Authenticator[]
+  recoveryCodes    RecoveryCode[]
 
   @@index([role])
   @@index([status])
+}
+
+// WebAuthn second factor. Optional today; required to grant the ADMIN role
+// once any OWNER has one enrolled.
+model Authenticator {
+  id                  String    @id @default(cuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialId        Bytes     @unique
+  credentialPublicKey Bytes
+  counter             Int       @default(0)
+  transports          String    @default("") // CSV: "usb,nfc,ble,internal"
+  nickname            String
+  createdAt           DateTime  @default(now())
+  lastUsedAt          DateTime?
+
+  @@index([userId])
+}
+
+// Bcrypt-hashed one-time recovery codes printed during enrollment. 10 per
+// enrollment; each row consumed once.
+model RecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hash      String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model AuditLog {
