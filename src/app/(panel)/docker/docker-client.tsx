@@ -183,10 +183,18 @@ export function DockerClient() {
               : 'Live container view, refreshes every 5s.'}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setRefreshKey((k) => k + 1)}>
-          <RefreshCw className="h-3 w-3" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <a href="/docker/build">Build image</a>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <a href="/docker/cleanup">Volumes &amp; cleanup</a>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setRefreshKey((k) => k + 1)}>
+            <RefreshCw className="h-3 w-3" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {error && !containers ? (

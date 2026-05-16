@@ -2,6 +2,58 @@
 
 All notable changes to CachePanel.
 
+## v1.6.0 — 2026-05-16
+
+### Added
+- **10 more apps in the catalog**: Jellyfin, Plex, code-server, n8n,
+  Grafana, Portainer CE, Nginx Proxy Manager, Dozzle, Watchtower, Glances.
+  New categories: `media`, `devtools`, `automation`.
+- **File transfer between servers.** Right-click any file/folder in the
+  file manager → "Transfer to another server…". Streams via `tar | tar`
+  over SSH from the primary, verifies file count, supports copy or move.
+- **Docker image builder** (`/docker/build`). Inline Dockerfile editor +
+  build context picker (absolute server path) OR upload a `.tar.gz`
+  context from the browser (up to 500 MB). Streams the full build log
+  back.
+- **Server batch actions UI** (`/admin/batch`). Select servers by
+  individual checkbox or by tag, run a whitelisted action (restart
+  container, pull image, compose up/down, safe shell command) across
+  all of them, see per-server output.
+- **In-browser asciinema replay** (`/admin/recordings`). v1.5 wrote the
+  cast files; v1.6 plays them back without leaving the panel. Loads the
+  player via CDN to avoid bundle bloat.
+- **Cloud backups (S3-compatible).** AWS S3, Cloudflare R2, Backblaze
+  B2, MinIO, Wasabi — anything with an S3-compatible endpoint.
+  Configure under Settings → Backups → "Configure S3". Tick "Also
+  upload to <bucket>" when creating a backup.
+- **Scheduled commands** (`/schedules`). Cron jobs synced into the SSH
+  user's crontab on a target server, tagged so the panel only touches
+  its own lines. Presets for every-minute / every-hour / daily /
+  weekly / monthly + free-form crontab grammar.
+- **Self-updater.** Settings → Panel updates compares the local
+  container's image digest to GHCR's `:latest`, surfaces "update
+  available" + a one-click apply that runs `docker compose pull &&
+  up -d cachepanel` over SSH-to-self.
+- **Docker volumes browser + cleaner** (`/docker/cleanup`). Lists every
+  volume with its mountpoint, size, and "in use" status. Quick-prune
+  buttons for unused images / volumes / networks / build cache, plus
+  per-volume remove (with `--force` when in use).
+
+### Changed
+- Catalog category type extended (`media`, `devtools`, `automation`).
+- Sidebar gains Recordings, Batch actions, Schedules entries.
+- Docker page top-bar gains "Build image" + "Volumes &amp; cleanup" links.
+
+### Deferred to v1.7+
+- Light mode, mobile-responsive sidebar, i18n scaffolding.
+- Remote SQL console with editor + history + CSV export.
+- Container template builder (overlaps with the app catalog; will be
+  extended catalog tooling rather than a separate UI).
+- Resource quotas per user.
+- Streaming build logs (the v1.6 builder returns the full log at end).
+
+---
+
 ## v1.5.0 — 2026-05-16
 
 ### Added

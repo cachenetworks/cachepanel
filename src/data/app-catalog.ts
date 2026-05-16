@@ -23,7 +23,7 @@ export interface CatalogApp {
   name: string;
   description: string;
   icon: string; // /apps-icons/<slug>.svg in public/
-  category: 'security' | 'monitoring' | 'utilities' | 'networking';
+  category: 'security' | 'monitoring' | 'utilities' | 'networking' | 'media' | 'devtools' | 'automation';
   composeTemplate: string;
   variables: AppVar[];
   /** The HTTP port the app's web UI listens on (matches the variable named `PORT`). */
@@ -222,7 +222,368 @@ const PIHOLE: CatalogApp = {
 `,
 };
 
-export const APP_CATALOG: CatalogApp[] = [VAULTWARDEN, UPTIME_KUMA, FILEBROWSER, PIHOLE];
+// ============================================================================
+// v1.6 — 10 new apps
+// ============================================================================
+
+const JELLYFIN: CatalogApp = {
+  slug: 'jellyfin',
+  name: 'Jellyfin',
+  description:
+    'Open-source media server — movies, TV, music, photos. Browser, mobile, smart-TV clients. No subscriptions.',
+  icon: '/apps-icons/jellyfin.svg',
+  category: 'media',
+  defaultPort: 8096,
+  latestImage: 'jellyfin/jellyfin:latest',
+  links: { docs: 'https://jellyfin.org/docs/', github: 'https://github.com/jellyfin/jellyfin' },
+  variables: [
+    { name: 'PORT', label: 'Web UI port', type: 'port', default: '8096', required: true },
+    {
+      name: 'MEDIA_PATH',
+      label: 'Media library path (host)',
+      type: 'string',
+      default: '/srv/media',
+      required: true,
+      description: 'Absolute host path containing your movies/tv directories.',
+    },
+  ],
+  composeTemplate: `services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: cachepanel-jellyfin
+    restart: unless-stopped
+    network_mode: bridge
+    ports:
+      - "{{PORT}}:8096"
+    volumes:
+      - ./data/config:/config
+      - ./data/cache:/cache
+      - "{{MEDIA_PATH}}:/media:ro"
+`,
+};
+
+const PLEX: CatalogApp = {
+  slug: 'plex',
+  name: 'Plex Media Server',
+  description:
+    'Polished media server with cloud sync, mobile sync, and live TV. Requires a free plex.tv account.',
+  icon: '/apps-icons/plex.svg',
+  category: 'media',
+  defaultPort: 32400,
+  latestImage: 'plexinc/pms-docker:latest',
+  links: { docs: 'https://support.plex.tv', github: 'https://github.com/plexinc/pms-docker' },
+  variables: [
+    { name: 'PORT', label: 'Web UI port', type: 'port', default: '32400', required: true },
+    {
+      name: 'PLEX_CLAIM',
+      label: 'Plex claim token',
+      type: 'password',
+      secret: true,
+      description: 'Get one at plex.tv/claim — only valid for ~4 minutes. Required on first boot.',
+    },
+    {
+      name: 'MEDIA_PATH',
+      label: 'Media library path (host)',
+      type: 'string',
+      default: '/srv/media',
+      required: true,
+    },
+  ],
+  composeTemplate: `services:
+  plex:
+    image: plexinc/pms-docker:latest
+    container_name: cachepanel-plex
+    restart: unless-stopped
+    environment:
+      PLEX_CLAIM: "{{PLEX_CLAIM}}"
+      TZ: "UTC"
+    ports:
+      - "{{PORT}}:32400"
+    volumes:
+      - ./data/config:/config
+      - ./data/transcode:/transcode
+      - "{{MEDIA_PATH}}:/data:ro"
+`,
+};
+
+const CODE_SERVER: CatalogApp = {
+  slug: 'code-server',
+  name: 'code-server (VS Code)',
+  description: 'Run VS Code in the browser. Full editor with extensions. Great for cloud dev boxes.',
+  icon: '/apps-icons/code-server.svg',
+  category: 'devtools',
+  defaultPort: 8443,
+  latestImage: 'codercom/code-server:latest',
+  links: { docs: 'https://coder.com/docs/code-server', github: 'https://github.com/coder/code-server' },
+  variables: [
+    { name: 'PORT', label: 'Web UI port', type: 'port', default: '8443', required: true },
+    {
+      name: 'PASSWORD',
+      label: 'Login password',
+      type: 'password',
+      secret: true,
+      required: true,
+    },
+    {
+      name: 'WORKSPACE_PATH',
+      label: 'Workspace path (host)',
+      type: 'string',
+      default: '/srv/code',
+      required: true,
+    },
+  ],
+  composeTemplate: `services:
+  code-server:
+    image: codercom/code-server:latest
+    container_name: cachepanel-code-server
+    restart: unless-stopped
+    environment:
+      PASSWORD: "{{PASSWORD}}"
+    ports:
+      - "{{PORT}}:8080"
+    volumes:
+      - ./data/config:/home/coder/.config
+      - "{{WORKSPACE_PATH}}:/home/coder/project"
+`,
+};
+
+const N8N: CatalogApp = {
+  slug: 'n8n',
+  name: 'n8n',
+  description:
+    'Fair-code workflow automation — 400+ integrations, visual editor, self-hosted Zapier alternative.',
+  icon: '/apps-icons/n8n.svg',
+  category: 'automation',
+  defaultPort: 5678,
+  latestImage: 'n8nio/n8n:latest',
+  links: { docs: 'https://docs.n8n.io', github: 'https://github.com/n8n-io/n8n' },
+  variables: [
+    { name: 'PORT', label: 'Web UI port', type: 'port', default: '5678', required: true },
+    {
+      name: 'BASIC_AUTH_USER',
+      label: 'Admin username',
+      type: 'string',
+      default: 'admin',
+      required: true,
+    },
+    {
+      name: 'BASIC_AUTH_PASSWORD',
+      label: 'Admin password',
+      type: 'password',
+      secret: true,
+      required: true,
+    },
+  ],
+  composeTemplate: `services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: cachepanel-n8n
+    restart: unless-stopped
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: "{{BASIC_AUTH_USER}}"
+      N8N_BASIC_AUTH_PASSWORD: "{{BASIC_AUTH_PASSWORD}}"
+      N8N_HOST: "0.0.0.0"
+      N8N_PORT: "5678"
+    ports:
+      - "{{PORT}}:5678"
+    volumes:
+      - ./data:/home/node/.n8n
+`,
+};
+
+const GRAFANA: CatalogApp = {
+  slug: 'grafana',
+  name: 'Grafana',
+  description: 'Dashboards for everything — Prometheus, Loki, InfluxDB, Postgres, you name it.',
+  icon: '/apps-icons/grafana.svg',
+  category: 'monitoring',
+  defaultPort: 3000,
+  latestImage: 'grafana/grafana:latest',
+  links: { docs: 'https://grafana.com/docs/', github: 'https://github.com/grafana/grafana' },
+  variables: [
+    { name: 'PORT', label: 'Web UI port', type: 'port', default: '3000', required: true },
+    {
+      name: 'ADMIN_PASSWORD',
+      label: 'Admin password',
+      type: 'password',
+      secret: true,
+      required: true,
+    },
+  ],
+  composeTemplate: `services:
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cachepanel-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "{{ADMIN_PASSWORD}}"
+    ports:
+      - "{{PORT}}:3000"
+    volumes:
+      - ./data:/var/lib/grafana
+`,
+};
+
+const PORTAINER: CatalogApp = {
+  slug: 'portainer',
+  name: 'Portainer CE',
+  description: 'Docker / Swarm / Kubernetes management UI. Useful as a second opinion alongside CachePanel.',
+  icon: '/apps-icons/portainer.svg',
+  category: 'devtools',
+  defaultPort: 9000,
+  latestImage: 'portainer/portainer-ce:latest',
+  links: { docs: 'https://docs.portainer.io', github: 'https://github.com/portainer/portainer' },
+  variables: [
+    { name: 'PORT', label: 'Web UI port', type: 'port', default: '9000', required: true },
+  ],
+  composeTemplate: `services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: cachepanel-portainer
+    restart: unless-stopped
+    ports:
+      - "{{PORT}}:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+`,
+};
+
+const NPM: CatalogApp = {
+  slug: 'nginx-proxy-manager',
+  name: 'Nginx Proxy Manager',
+  description:
+    'Reverse proxy + free Let\\'s Encrypt SSL in a clean UI. Point a domain at it, click "request cert", done.',
+  icon: '/apps-icons/npm.svg',
+  category: 'networking',
+  defaultPort: 81,
+  latestImage: 'jc21/nginx-proxy-manager:latest',
+  links: { docs: 'https://nginxproxymanager.com', github: 'https://github.com/NginxProxyManager/nginx-proxy-manager' },
+  variables: [
+    { name: 'PORT', label: 'Admin UI port', type: 'port', default: '81', required: true },
+    { name: 'HTTP_PORT', label: 'HTTP port (80)', type: 'port', default: '80', required: true },
+    { name: 'HTTPS_PORT', label: 'HTTPS port (443)', type: 'port', default: '443', required: true },
+  ],
+  composeTemplate: `services:
+  npm:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: cachepanel-npm
+    restart: unless-stopped
+    ports:
+      - "{{HTTP_PORT}}:80"
+      - "{{HTTPS_PORT}}:443"
+      - "{{PORT}}:81"
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+`,
+};
+
+const DOZZLE: CatalogApp = {
+  slug: 'dozzle',
+  name: 'Dozzle',
+  description: 'Real-time log viewer for Docker. Zero config, ~10MB image. Pairs nicely with Portainer.',
+  icon: '/apps-icons/dozzle.svg',
+  category: 'monitoring',
+  defaultPort: 8080,
+  latestImage: 'amir20/dozzle:latest',
+  links: { docs: 'https://dozzle.dev', github: 'https://github.com/amir20/dozzle' },
+  variables: [
+    { name: 'PORT', label: 'Web UI port', type: 'port', default: '8080', required: true },
+  ],
+  composeTemplate: `services:
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: cachepanel-dozzle
+    restart: unless-stopped
+    ports:
+      - "{{PORT}}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+`,
+};
+
+const WATCHTOWER: CatalogApp = {
+  slug: 'watchtower',
+  name: 'Watchtower',
+  description:
+    'Auto-update Docker containers when new images are published. Headless — no UI.',
+  icon: '/apps-icons/watchtower.svg',
+  category: 'automation',
+  defaultPort: 0,
+  latestImage: 'containrrr/watchtower:latest',
+  links: { docs: 'https://containrrr.dev/watchtower/', github: 'https://github.com/containrrr/watchtower' },
+  variables: [
+    {
+      name: 'CHECK_INTERVAL',
+      label: 'Check interval (seconds)',
+      type: 'string',
+      default: '86400',
+      required: true,
+      description: '86400 = once per day. Lower values poll registries more aggressively.',
+    },
+  ],
+  composeTemplate: `services:
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: cachepanel-watchtower
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_POLL_INTERVAL: "{{CHECK_INTERVAL}}"
+      WATCHTOWER_CLEANUP: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+`,
+};
+
+const GLANCES: CatalogApp = {
+  slug: 'glances',
+  name: 'Glances',
+  description: 'Cross-platform monitoring tool — CPU, memory, network, disk, processes, sensors, in a web UI.',
+  icon: '/apps-icons/glances.svg',
+  category: 'monitoring',
+  defaultPort: 61208,
+  latestImage: 'nicolargo/glances:latest-full',
+  links: { docs: 'https://nicolargo.github.io/glances/', github: 'https://github.com/nicolargo/glances' },
+  variables: [
+    { name: 'PORT', label: 'Web UI port', type: 'port', default: '61208', required: true },
+  ],
+  composeTemplate: `services:
+  glances:
+    image: nicolargo/glances:latest-full
+    container_name: cachepanel-glances
+    restart: unless-stopped
+    pid: host
+    network_mode: bridge
+    ports:
+      - "{{PORT}}:61208"
+    environment:
+      GLANCES_OPT: "-w"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/os-release:/etc/os-release:ro
+`,
+};
+
+export const APP_CATALOG: CatalogApp[] = [
+  // v1.5
+  VAULTWARDEN,
+  UPTIME_KUMA,
+  FILEBROWSER,
+  PIHOLE,
+  // v1.6
+  JELLYFIN,
+  PLEX,
+  CODE_SERVER,
+  N8N,
+  GRAFANA,
+  PORTAINER,
+  NPM,
+  DOZZLE,
+  WATCHTOWER,
+  GLANCES,
+];
 
 export function getCatalogApp(slug: string): CatalogApp | null {
   return APP_CATALOG.find((a) => a.slug === slug) ?? null;

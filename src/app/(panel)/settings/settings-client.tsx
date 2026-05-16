@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import type { PanelUser } from '@/lib/session';
 import { AlertsCard } from './alerts-card';
 import { BackupsCard } from './backups-card';
+import { UpdateCard } from './update-card';
 
 interface SettingsResponse {
   settings: {
@@ -290,6 +291,7 @@ export function SettingsClient({ user }: { user: PanelUser }) {
 
       <AlertsCard isOwner={isOwner} />
       <BackupsCard isOwner={isOwner} />
+      <UpdateCard isOwner={isOwner} />
     </div>
   );
 }

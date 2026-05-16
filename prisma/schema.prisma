@@ -144,8 +144,30 @@ model Server {
   provisions     UserServerProvision[]
   installedApps  InstalledApp[]
   snapshots      ServerSnapshot[]
+  scheduledJobs  ScheduledJob[]
 
   @@index([isPrimary])
+}
+
+// User-managed cron jobs. We write them to the SSH user's crontab tagged
+// with the row id so we can edit/remove later. We don't try to model arbitrary
+// existing crontab entries — only ones the panel created.
+model ScheduledJob {
+  id            String   @id @default(cuid())
+  serverId      String
+  server        Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  name          String
+  cronExpr      String   // 5-field crontab: "0 3 * * *"
+  command       String
+  enabled       Boolean  @default(true)
+  lastOutput    String?  // captured stdout/stderr of last run if user opted in
+  lastExitCode  Int?
+  lastRanAt     DateTime?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([serverId])
 }
 
 // Time-series rows written by the alert-poller every 60s. Used to draw the

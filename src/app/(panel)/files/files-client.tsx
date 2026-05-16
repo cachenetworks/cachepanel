@@ -112,6 +112,7 @@ export function FilesClient() {
   // Modals
   const [editing, setEditing] = React.useState<{ path: string; content: string; sensitive: boolean } | null>(null);
   const [tailing, setTailing] = React.useState<{ path: string } | null>(null);
+  const [transferring, setTransferring] = React.useState<{ path: string } | null>(null);
   const [createOpen, setCreateOpen] = React.useState<null | 'file' | 'folder'>(null);
   const [createName, setCreateName] = React.useState('');
   const [renameTarget, setRenameTarget] = React.useState<Item | null>(null);
@@ -427,6 +428,10 @@ export function FilesClient() {
                         <Edit3 className="h-4 w-4" />
                         Rename
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setTransferring({ path: it.path })}>
+                        <Edit3 className="h-4 w-4" />
+                        Transfer to another server…
+                      </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem danger onClick={() => setDeleteTarget(it)}>
                         <Trash2 className="h-4 w-4" />
@@ -534,6 +539,161 @@ export function FilesClient() {
       {tailing ? (
         <LogTailModal path={tailing.path} serverId={serverId} onClose={() => setTailing(null)} />
       ) : null}
+
+      {transferring ? (
+        <TransferModal
+          sourcePath={transferring.path}
+          sourceServerId={serverId}
+          onClose={() => setTransferring(null)}
+          onDone={() => {
+            setTransferring(null);
+            // Refresh listing in case we moved (source disappears).
+            void load();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function TransferModal({
+  sourcePath,
+  sourceServerId,
+  onClose,
+  onDone,
+}: {
+  sourcePath: string;
+  sourceServerId: string | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { toast } = useToast();
+  const [servers, setServers] = React.useState<Array<{ id: string; name: string; isPrimary: boolean }> | null>(null);
+  const [destServerId, setDestServerId] = React.useState('');
+  const [destPath, setDestPath] = React.useState('');
+  const [mode, setMode] = React.useState<'copy' | 'move'>('copy');
+  const [submitting, setSubmitting] = React.useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/servers', { cache: 'no-store' });
+        if (!res.ok) throw new Error(await res.text());
+        const body = await res.json();
+        setServers(body.servers);
+        const firstOther = body.servers.find((s: { id: string }) => s.id !== sourceServerId);
+        if (firstOther) setDestServerId(firstOther.id);
+      } catch (err) {
+        toast({ variant: 'error', title: 'Failed to load servers', description: err instanceof Error ? err.message : String(err) });
+      }
+    })();
+  }, [sourceServerId, toast]);
+
+  async function submit() {
+    if (!sourceServerId || !destServerId) {
+      toast({ variant: 'error', title: 'Pick a destination server' });
+      return;
+    }
+    if (!destPath || !destPath.startsWith('/')) {
+      toast({ variant: 'error', title: 'Destination must be an absolute path' });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/files/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceServerId,
+          sourcePath,
+          destServerId,
+          destPath,
+          mode,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? 'Transfer failed');
+      const mb = (body.bytesTransferred / 1024 / 1024).toFixed(1);
+      const secs = (body.durationMs / 1000).toFixed(1);
+      toast({
+        variant: 'success',
+        title: `${mode === 'move' ? 'Moved' : 'Copied'} ${body.sourceFileCount} item(s)`,
+        description: `${mb} MB in ${secs}s`,
+      });
+      onDone();
+    } catch (err) {
+      toast({ variant: 'error', title: 'Transfer failed', description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-neon-magenta/30 bg-bg-1 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-semibold text-white">Transfer file/folder</h3>
+        <p className="mt-1 text-xs text-white/55">
+          Streams via tar over SSH — primary panel → source → destination. Verifies file count after copy.
+        </p>
+
+        <div className="mt-4 space-y-3">
+          <label className="block">
+            <span className="text-xs font-medium text-white/70">Source</span>
+            <div className="mt-1 rounded-md border border-white/10 bg-white/[0.02] px-3 py-2 font-mono text-xs text-white/70">
+              {sourcePath}
+            </div>
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-medium text-white/70">Destination server</span>
+            <select
+              value={destServerId}
+              onChange={(e) => setDestServerId(e.target.value)}
+              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white focus:border-neon-magenta/50 focus:outline-none"
+            >
+              {servers?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}{s.isPrimary ? ' (primary)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-medium text-white/70">Destination path (parent directory)</span>
+            <input
+              value={destPath}
+              onChange={(e) => setDestPath(e.target.value)}
+              placeholder="/srv/imports"
+              className="mt-1 w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 font-mono text-xs text-white placeholder:text-white/30 focus:border-neon-magenta/50 focus:outline-none"
+            />
+            <p className="mt-1 text-[10px] text-white/40">
+              The source's basename is appended (so /srv/imports + my-folder → /srv/imports/my-folder).
+            </p>
+          </label>
+
+          <fieldset className="rounded-md border border-white/10 p-2">
+            <legend className="px-1 text-[10px] uppercase tracking-wider text-white/50">Mode</legend>
+            <div className="flex gap-3 text-xs text-white/80">
+              <label className="flex items-center gap-1.5">
+                <input type="radio" checked={mode === 'copy'} onChange={() => setMode('copy')} />
+                Copy
+              </label>
+              <label className="flex items-center gap-1.5">
+                <input type="radio" checked={mode === 'move'} onChange={() => setMode('move')} />
+                Move <span className="text-white/45">(deletes source after verified copy)</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={submitting}>
+            {submitting ? `${mode === 'move' ? 'Moving' : 'Copying'}…` : (mode === 'move' ? 'Move' : 'Copy')}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

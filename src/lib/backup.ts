@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { createReadStream, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
+import { getSetting } from './settings';
 
 // MVP backup: tar+gzip of the panel's persistent data (SQLite DB, secrets,
 // secrets-users, secrets-servers) into /app/data/backups/.
@@ -115,5 +116,64 @@ export async function getBackupSize(filename: string): Promise<number> {
   if (!p.startsWith(resolve(BACKUPS_DIR))) throw new Error('Path traversal blocked');
   const s = statSync(p);
   return s.size;
+}
+
+// ---- S3-compatible cloud destination ----
+// Settings keys:
+//   backup.s3_endpoint      - "https://s3.us-east-1.amazonaws.com" or "https://<accountid>.r2.cloudflarestorage.com"
+//   backup.s3_region        - "us-east-1" (Cloudflare R2 expects "auto")
+//   backup.s3_bucket        - bucket name
+//   backup.s3_access_key    - access key id
+//   backup.s3_secret_key    - secret access key
+//   backup.s3_prefix        - optional path prefix in the bucket (e.g. "cachepanel/")
+
+export interface S3Config {
+  endpoint: string;
+  region: string;
+  bucket: string;
+  accessKey: string;
+  secretKey: string;
+  prefix: string;
+}
+
+export async function getS3Config(): Promise<S3Config | null> {
+  const endpoint = await getSetting('backup.s3_endpoint');
+  const region = await getSetting('backup.s3_region');
+  const bucket = await getSetting('backup.s3_bucket');
+  const accessKey = await getSetting('backup.s3_access_key');
+  const secretKey = await getSetting('backup.s3_secret_key');
+  if (!endpoint || !bucket || !accessKey || !secretKey) return null;
+  const prefix = (await getSetting('backup.s3_prefix')) ?? '';
+  return {
+    endpoint,
+    region: region || 'auto',
+    bucket,
+    accessKey,
+    secretKey,
+    prefix,
+  };
+}
+
+export async function uploadBackupToS3(filename: string): Promise<{ key: string; size: number }> {
+  const cfg = await getS3Config();
+  if (!cfg) throw new Error('S3 not configured');
+  const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
+  const client = new S3Client({
+    endpoint: cfg.endpoint,
+    region: cfg.region,
+    credentials: { accessKeyId: cfg.accessKey, secretAccessKey: cfg.secretKey },
+    forcePathStyle: true,
+  });
+  const buf = await getBackupBuffer(filename);
+  const key = `${cfg.prefix}${filename}`;
+  await client.send(
+    new PutObjectCommand({
+      Bucket: cfg.bucket,
+      Key: key,
+      Body: buf,
+      ContentType: 'application/gzip',
+    }),
+  );
+  return { key, size: buf.length };
 }
 
