@@ -163,7 +163,7 @@ export function AlertsCard({ isOwner }: { isOwner: boolean }) {
                   placeholder="https://discord.com/api/webhooks/…"
                   className="flex-1 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white placeholder:text-white/30 focus:border-neon-magenta/50 focus:outline-none"
                 />
-                <Button type="button" variant="secondary" onClick={sendTest} disabled={testing || !url}>
+                <Button type="button" variant="outline" onClick={sendTest} disabled={testing || !url}>
                   <Send className="h-3.5 w-3.5" />
                   {testing ? 'Sending…' : 'Test'}
                 </Button>

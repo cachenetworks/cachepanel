@@ -36,6 +36,7 @@ model User {
   fileActions      FileAction[]
   authenticators   Authenticator[]
   recoveryCodes    RecoveryCode[]
+  installedApps    InstalledApp[]
 
   @@index([role])
   @@index([status])
@@ -141,8 +142,33 @@ model Server {
   updatedAt      DateTime @updatedAt
 
   provisions     UserServerProvision[]
+  installedApps  InstalledApp[]
 
   @@index([isPrimary])
+}
+
+// One-click app installations. Each row tracks a docker-compose-managed app
+// dropped under /opt/cachepanel/apps/<slug> on a target Server. v1 allows
+// exactly one install per (server, slug); multi-instance can come later.
+model InstalledApp {
+  id            String   @id @default(cuid())
+  serverId      String
+  server        Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  slug          String
+  name          String
+  status        String   @default("installing") // installing|running|stopped|failed|removing
+  variables     String   // JSON {name: value}; secrets included
+  composeYaml   String
+  ports         String   @default("[]") // JSON: [{public:8080, container:80}]
+  imageTag      String   @default("")
+  hasUpdate     Boolean  @default(false)
+  installedById String?
+  installedBy   User?    @relation(fields: [installedById], references: [id], onDelete: SetNull)
+  installedAt   DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([serverId, slug])
+  @@index([serverId])
 }
 
 // Per-(user,server) provisioning state. When OWNER clicks "provision SSH" for

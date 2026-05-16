@@ -206,7 +206,7 @@ export function SecurityClient({
                       {a.lastUsedAt ? `last used ${new Date(a.lastUsedAt).toLocaleString()}` : 'never used'}
                     </div>
                   </div>
-                  <Button variant="secondary" onClick={() => remove(a.id, a.nickname)}>
+                  <Button variant="outline" onClick={() => remove(a.id, a.nickname)}>
                     <Trash2 className="h-3.5 w-3.5" />
                     Remove
                   </Button>
@@ -228,7 +228,7 @@ export function SecurityClient({
                 {enrolling ? 'Touch your key…' : 'Add security key'}
               </Button>
               {data && data.authenticators.length > 0 ? (
-                <Button variant="secondary" onClick={testVerify}>
+                <Button variant="outline" onClick={testVerify}>
                   Test verify
                 </Button>
               ) : null}
@@ -277,11 +277,11 @@ export function SecurityClient({
               ))}
             </pre>
             <div className="mt-4 flex gap-2">
-              <Button variant="secondary" onClick={copyCodes}>
+              <Button variant="outline" onClick={copyCodes}>
                 <Copy className="h-3.5 w-3.5" />
                 Copy
               </Button>
-              <Button variant="secondary" onClick={downloadCodes}>
+              <Button variant="outline" onClick={downloadCodes}>
                 <Download className="h-3.5 w-3.5" />
                 Download
               </Button>
