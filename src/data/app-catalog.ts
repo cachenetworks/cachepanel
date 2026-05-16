@@ -454,7 +454,7 @@ const NPM: CatalogApp = {
   slug: 'nginx-proxy-manager',
   name: 'Nginx Proxy Manager',
   description:
-    'Reverse proxy + free Let\\'s Encrypt SSL in a clean UI. Point a domain at it, click "request cert", done.',
+    "Reverse proxy + free Let's Encrypt SSL in a clean UI. Point a domain at it, click \"request cert\", done.",
   icon: '/apps-icons/npm.svg',
   category: 'networking',
   defaultPort: 81,
