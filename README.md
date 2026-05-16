@@ -67,7 +67,7 @@ care you would run any remote-admin tool:
 | Frontend | Next.js 14 (App Router) + TypeScript |
 | Styling | TailwindCSS + shadcn/ui (Radix) |
 | Auth | NextAuth.js (Discord provider) |
-| DB | PostgreSQL 16 |
+| DB | SQLite (better-sqlite3) |
 | ORM | Prisma |
 | Realtime | socket.io |
 | Terminal | `node-pty` + `xterm.js` |
@@ -137,7 +137,7 @@ essentials:
 
 | Variable | Required | Description |
 |---|---|---|
-| `DATABASE_URL` | yes | Postgres URL (Compose wires this for you) |
+| `DATABASE_URL` | yes | SQLite path, e.g. `file:./data/cachepanel.db` (Compose wires this for you) |
 | `NEXTAUTH_URL` | yes | Public URL where CachePanel is reachable |
 | `NEXTAUTH_SECRET` | yes | `openssl rand -base64 32` |
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | yes | From Discord dev portal |
@@ -327,10 +327,11 @@ Connect to the database directly and update the user row:
 UPDATE "User" SET status = 'APPROVED', role = 'OWNER' WHERE "discordId" = '<id>';
 ```
 
-**Migrations fail with `P1001: Cannot reach database server`**
+**Migrations fail with `P1001` or `unable to open database file`**
 
-Postgres hasn't finished starting. The entrypoint retries for ~60s. If it
-still fails, check `docker compose logs db`.
+SQLite expects the directory in `DATABASE_URL` to exist and be writable by
+UID 1001 (the container's `cache` user). The entrypoint creates `/app/data`
+on first start; if it still fails, check the bind-mount/volume permissions.
 
 ---
 
@@ -338,7 +339,7 @@ still fails, check `docker compose logs db`.
 
 ```bash
 cp .env.example .env
-# edit values, point DATABASE_URL at a local Postgres
+# DATABASE_URL defaults to file:./prisma/cachepanel.db — no separate DB to run
 npm install
 npx prisma migrate deploy
 npm run dev
