@@ -2,6 +2,28 @@
 
 All notable changes to CachePanel.
 
+## v1.7.1 — 2026-05-17 (hotfix)
+
+Two follow-on bugs from the v1.7.0 config-in-DB rollout that prevented
+fresh installs from completing sign-in.
+
+### Fixed
+- `/setup` page crashed with `Cookies can only be modified in a Server
+  Action or Route Handler` after the user pasted the setup-token URL.
+  Cookie write moved out of the Server Component into a new
+  `/api/setup/claim` route handler. Bonus: setup token no longer
+  lingers in the address bar after exchange.
+- **Discord sign-in failed with `OAuthSignin` even after the wizard
+  saved valid creds.** NextAuth options were cached at module load, so
+  the constructed `DiscordProvider` held the empty pre-setup
+  `clientId`/`clientSecret` forever. Auth options + the NextAuth
+  handler are now rebuilt per-request, after priming the config
+  snapshot, so the provider always sees the latest creds.
+- **Cloudflare-Tunnel-fronted setup URL redirected to `http://0.0.0.0`.**
+  `/api/setup/claim` was using `req.url` as the redirect base, which
+  Cloudflare forwards as `127.0.0.1:8992`. Redirects now anchor to
+  `NEXTAUTH_URL`.
+
 ## v1.7.0 — 2026-05-17
 
 The "config moves into the database + one-time setup wizard" release.
