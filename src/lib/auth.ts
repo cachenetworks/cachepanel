@@ -2,8 +2,16 @@ import type { NextAuthOptions, Session } from 'next-auth';
 import DiscordProvider from 'next-auth/providers/discord';
 import { prisma } from './prisma';
 import { getEnv, getAllowedRoles, getAllowedUserIds } from './env';
+import { readSnapshot } from './config-snapshot';
 import { audit } from './audit';
 import { emitAlert } from './alerts';
+
+// Discord creds + guild restriction now live in AppSetting (v1.7 setup
+// wizard) with .env as a legacy fallback. These tiny helpers keep the
+// rest of the file readable.
+function discordClientId(): string { return readSnapshot('discord_client_id', process.env.DISCORD_CLIENT_ID ?? ''); }
+function discordClientSecret(): string { return readSnapshot('discord_client_secret', process.env.DISCORD_CLIENT_SECRET ?? ''); }
+function discordGuildId(): string { return readSnapshot('discord_guild_id', process.env.DISCORD_GUILD_ID ?? ''); }
 
 const DISCORD_SCOPES = ['identify', 'email', 'guilds', 'guilds.members.read'];
 
@@ -12,10 +20,10 @@ interface DiscordGuildMember {
 }
 
 async function checkGuildMembership(accessToken: string): Promise<{ ok: true; roles: string[] } | { ok: false; reason: string }> {
-  const env = getEnv();
-  if (!env.DISCORD_GUILD_ID) return { ok: true, roles: [] };
+  const guildId = discordGuildId();
+  if (!guildId) return { ok: true, roles: [] };
   try {
-    const res = await fetch(`https://discord.com/api/users/@me/guilds/${env.DISCORD_GUILD_ID}/member`, {
+    const res = await fetch(`https://discord.com/api/users/@me/guilds/${guildId}/member`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (res.status === 404) return { ok: false, reason: 'You are not a member of the required Discord guild.' };
@@ -61,8 +69,8 @@ function buildOptions(): NextAuthOptions {
     },
     providers: [
       DiscordProvider({
-        clientId: env.DISCORD_CLIENT_ID,
-        clientSecret: env.DISCORD_CLIENT_SECRET,
+        clientId: discordClientId(),
+        clientSecret: discordClientSecret(),
         authorization: { params: { scope: DISCORD_SCOPES.join(' ') } },
       }),
     ],
@@ -88,7 +96,7 @@ function buildOptions(): NextAuthOptions {
         // Optional guild check
         const allowedRoles = getAllowedRoles();
         let guildRoles: string[] = [];
-        if (env.DISCORD_GUILD_ID) {
+        if (discordGuildId()) {
           const check = await checkGuildMembership(account.access_token);
           if (!check.ok) {
             await audit({

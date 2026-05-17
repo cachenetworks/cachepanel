@@ -1,25 +1,38 @@
 import type { Config } from 'tailwindcss';
 
+// Color tokens reference the CSS variables defined in globals.css.
+// Themes (dark/light) flip those variables via [data-theme="..."] on <html>.
+// Brand colors (neon green + magenta) stay hardcoded — visual identity,
+// readable on either background.
 const config: Config = {
-  darkMode: 'class',
+  darkMode: ['class', '[data-theme="dark"]'],
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
         background: {
-          DEFAULT: '#050505',
-          elevated: '#0b0b0f',
+          DEFAULT: 'var(--cp-bg)',
+          elevated: 'var(--cp-bg-elevated)',
+          card: 'var(--cp-bg-card)',
+          'card-strong': 'var(--cp-bg-card-strong)',
         },
         neon: {
           green: '#00F708',
           magenta: '#E600FF',
         },
-        border: 'rgba(255,255,255,0.08)',
-        muted: {
-          DEFAULT: 'rgba(255,255,255,0.06)',
-          foreground: 'rgba(255,255,255,0.55)',
+        border: {
+          DEFAULT: 'var(--cp-border)',
+          hover: 'var(--cp-border-hover)',
         },
-        foreground: '#f5f5f5',
+        muted: {
+          DEFAULT: 'var(--cp-bg-card)',
+          foreground: 'var(--cp-fg-muted)',
+        },
+        foreground: {
+          DEFAULT: 'var(--cp-fg)',
+          muted: 'var(--cp-fg-muted)',
+          subtle: 'var(--cp-fg-subtle)',
+        },
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],

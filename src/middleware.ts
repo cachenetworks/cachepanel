@@ -2,7 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { rateLimit } from '@/lib/rate-limit';
 
-const PUBLIC_PATHS = ['/login', '/api/auth', '/favicon.svg', '/_next', '/api/health'];
+const PUBLIC_PATHS = [
+  '/login',
+  '/api/auth',
+  '/favicon.svg',
+  '/_next',
+  '/api/health',
+  // First-run setup wizard is reachable without auth; the routes themselves
+  // gate on the setup token / signed cookie.
+  '/setup',
+  '/api/setup',
+  '/api/internal/first-boot',
+];
 
 function isHttpsRequest(req: NextRequest): boolean {
   // Detect Cloudflare/Nginx forwarded scheme first, then fall back to NEXTAUTH_URL.

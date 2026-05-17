@@ -2,6 +2,77 @@
 
 All notable changes to CachePanel.
 
+## v1.7.0 — 2026-05-17
+
+The "config moves into the database + one-time setup wizard" release.
+Drops 100+ lines of interactive prompts from the installer and lets users
+reconfigure everything from inside the panel without editing `.env`.
+
+### Added
+- **Light mode** with site-wide toggle in the topbar. CSS variables under
+  `[data-theme="dark"]` / `[data-theme="light"]` flip the chrome and shared
+  UI primitives. Per-page polish is incremental — sub-pages stay
+  readable but a few will get touched up in v1.7.1.
+- **Mobile-responsive sidebar parity.** Mobile drawer was missing five nav
+  entries (apps, recordings, batch actions, schedules, security) — fixed
+  by extracting a shared `nav-items.tsx` module. Server picker now lives
+  inside the mobile drawer instead of squeezing the topbar.
+- **First-run setup wizard at `/setup`.** Fresh installs boot into a
+  4-step wizard (welcome → Discord OAuth → optional integrations →
+  finish) instead of crashing on missing env vars. Token-gated entry,
+  short-lived signed cookie for the rest of the flow.
+- **Config-in-database layer (`src/lib/config.ts`).** 25 settings that
+  used to require `.env` edits + container restart now live in
+  `AppSetting` and are editable from the wizard / settings page. Sync
+  snapshot (`src/lib/config-snapshot.ts`) lets `auth.ts` read Discord
+  creds without an async refactor.
+- **First-boot migration (`src/lib/config-migrate.ts`).** v1.6 installs
+  with Discord/SSH/Cloudflare/Ollama in `.env` get their values seeded
+  into `AppSetting` automatically on first start of v1.7. Idempotent.
+  Placeholder values (`changeme`, `xxx`, `<token>`) are skipped so the
+  wizard still fires for partially-configured boxes.
+- **Setup token banner on every boot in setup mode.** The container logs
+  print a bordered banner with the `/setup?token=…` URL. Token rotates
+  on every restart until setup completes.
+
+### Changed
+- **Installer is ~120 lines shorter.** Removed the inline Discord OAuth
+  wizard, the SSH-to-self wizard, and the Cloudflare cert prompts. They
+  all run inside the panel now. `install.sh` writes a 6-line `.env`
+  (DATABASE_URL, NEXTAUTH_URL, NEXTAUTH_SECRET, AUTH_TRUST_HOST,
+  APP_PORT, CP_SETUP_TOKEN) and points the user at the wizard.
+- **`env.ts` schema relaxed.** `DISCORD_CLIENT_ID` and
+  `DISCORD_CLIENT_SECRET` are no longer required at boot — fresh
+  installs need to reach `/setup` before they can attempt a login.
+- **Topbar uses CSS variables.** `bg-black/50` → `bg-background-elevated/80`,
+  same for sidebars and the glass primitives.
+
+### Migration notes for v1.6 users
+- Existing `.env` keeps working unchanged. On first boot of v1.7, the
+  panel reads from `AppSetting` first and falls back to `.env` second.
+- The migration step logs exactly which keys it seeded, so you have a
+  clean list to delete from `.env` after restart.
+- `NEXTAUTH_URL` MUST stay in `.env` — NextAuth reads it at module
+  load. Changing it still requires editing `.env` and restarting.
+
+### Known limitations
+- The setup token is printed to `docker logs`. Anyone on the LAN who can
+  read the logs (or guess 16 random hex chars in 2^64 attempts) becomes
+  OWNER. Mitigate by binding the panel to `127.0.0.1` and tunneling, or
+  put it behind Cloudflare from the start.
+- Light mode v1 themes the chrome and shared primitives only — some
+  sub-pages with hand-rolled gradient backgrounds read as "fine but a
+  little rough" in light mode. Per-page polish lands in v1.7.1.
+
+### Deferred to v1.8+
+- Remote SQL console with editor + history + CSV export
+- Container template builder
+- Resource quotas per user
+- i18n scaffolding
+- Streaming build logs
+
+---
+
 ## v1.6.0 — 2026-05-16
 
 ### Added

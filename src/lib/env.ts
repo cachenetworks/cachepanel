@@ -45,11 +45,20 @@ function loadDotEnvOnce() {
 loadDotEnvOnce();
 
 const schema = z.object({
+  // ---- Boot-required (must be set in .env before the container starts) ---
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   NEXTAUTH_URL: z.string().url(),
   NEXTAUTH_SECRET: z.string().min(16, 'NEXTAUTH_SECRET must be at least 16 chars'),
-  DISCORD_CLIENT_ID: z.string().min(1),
-  DISCORD_CLIENT_SECRET: z.string().min(1),
+
+  // ---- Optional override for the v1.7 first-run setup token --------------
+  // If unset, server.js generates a random one and persists it in AppSetting.
+  CP_SETUP_TOKEN: z.string().optional().default(''),
+
+  // ---- LEGACY env-only path (config.ts now reads these via AppSetting first,
+  //      with env fallback). Marked optional so fresh installs can boot
+  //      without Discord creds and land in the /setup wizard. -------------
+  DISCORD_CLIENT_ID: z.string().optional().default(''),
+  DISCORD_CLIENT_SECRET: z.string().optional().default(''),
   DISCORD_GUILD_ID: z.string().optional().default(''),
   DISCORD_ALLOWED_ROLE_IDS: z.string().optional().default(''),
   DISCORD_ALLOWED_USER_IDS: z.string().optional().default(''),

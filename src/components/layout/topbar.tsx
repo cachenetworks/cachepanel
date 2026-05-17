@@ -15,19 +15,23 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { MobileSidebar } from './mobile-sidebar';
 import { ServerPicker } from './server-picker';
+import { ThemeToggle } from './theme-toggle';
 import type { PanelUser } from '@/lib/session';
 
 export function Topbar({ user, title }: { user: PanelUser; title?: string }) {
   const [open, setOpen] = React.useState(false);
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-white/[0.06] bg-black/50 px-4 backdrop-blur-xl md:px-6">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background-elevated/80 px-4 backdrop-blur-xl md:px-6">
       <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setOpen(true)} aria-label="Open menu">
         <Menu className="h-5 w-5" />
       </Button>
-      <div className="flex-1">
-        {title ? <h1 className="text-sm font-semibold tracking-tight text-white">{title}</h1> : null}
+      <div className="min-w-0 flex-1">
+        {title ? <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">{title}</h1> : null}
       </div>
-      <ServerPicker />
+      <div className="hidden md:block">
+        <ServerPicker />
+      </div>
+      <ThemeToggle />
       <DropdownMenu>
         <DropdownMenuTrigger className="flex items-center gap-3 rounded-full border border-white/[0.06] bg-white/[0.02] py-1 pl-1 pr-3 transition-colors hover:border-white/15">
           <Avatar src={user.avatar} fallback={user.username} size={28} />

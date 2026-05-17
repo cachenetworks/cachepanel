@@ -582,4 +582,45 @@ function clientIp(req) {
       setInterval(pollOnce, 60_000);
     }, 30_000);
   }
+
+  // ---- v1.7 first-boot: migrate .env -> AppSetting + print setup banner -
+  // Same internal-HMAC pattern as alerts. Runs once at ~20s in (after Next
+  // is warm, before the user could plausibly reach /setup).
+  if (process.env.NEXTAUTH_SECRET) {
+    const crypto = require('node:crypto');
+    const bootToken = crypto
+      .createHmac('sha256', process.env.NEXTAUTH_SECRET)
+      .update('first-boot')
+      .digest('hex');
+    setTimeout(async () => {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/internal/first-boot`, {
+          method: 'POST',
+          headers: { 'x-cachepanel-internal': bootToken },
+        });
+        if (!res.ok) return;
+        const body = await res.json().catch(() => ({}));
+        if (body.setupUrl) {
+          console.log('');
+          console.log('  ┌───────────────────────────────────────────────────────────────────┐');
+          console.log('  │  CachePanel first-run setup                                       │');
+          console.log('  │                                                                   │');
+          console.log('  │  Open this URL in your browser to finish configuration:           │');
+          console.log('  │                                                                   │');
+          console.log('  │    ' + String(body.setupUrl).padEnd(63) + '│');
+          console.log('  │                                                                   │');
+          console.log('  │  The token is regenerated on every restart until setup finishes.  │');
+          console.log('  └───────────────────────────────────────────────────────────────────┘');
+          console.log('');
+        }
+        if (body.migratedCount > 0) {
+          console.log(`[config-migrate] Migrated ${body.migratedCount} setting(s) from .env`);
+        }
+      } catch (err) {
+        if (err && err.code !== 'ECONNREFUSED') {
+          console.error('[first-boot] init failed:', err.message || err);
+        }
+      }
+    }, 20_000);
+  }
 })();
