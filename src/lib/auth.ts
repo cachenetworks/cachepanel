@@ -278,14 +278,16 @@ function buildOptions(): NextAuthOptions {
   };
 }
 
-// Lazy singleton: defer reading env vars until the first runtime call.
-// `next build` prerenders nothing that touches this (every page that calls
-// getServerSession is `force-dynamic`), so the env check only fires at request
-// time when real env vars exist.
-let _cached: NextAuthOptions | null = null;
+// Rebuild on every call so the Discord provider always picks up the latest
+// snapshot of credentials. The /setup wizard writes creds to AppSetting and
+// then refreshes the snapshot — but if we cached the options object, the
+// already-constructed DiscordProvider would still hold the empty
+// clientId/clientSecret from the cold-boot pre-setup snapshot, and every
+// sign-in attempt would fail with OAuthSignin.
+//
+// Construction is cheap (one object + one provider call), so don't cache.
 export function getAuthOptions(): NextAuthOptions {
-  if (!_cached) _cached = buildOptions();
-  return _cached;
+  return buildOptions();
 }
 
 // Kept for compatibility — but use getAuthOptions() in route handlers so the
