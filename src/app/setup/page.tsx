@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { isSetupMode, getManyConfig } from '@/lib/config';
-import { claimSetupTokenFromUrl, hasValidSetupCookie } from '@/lib/setup-token';
+import { hasValidSetupCookie } from '@/lib/setup-token';
 import { getEnv } from '@/lib/env';
 import { SetupClient } from './setup-client';
 
@@ -9,26 +9,27 @@ export const dynamic = 'force-dynamic';
 export default async function SetupPage({
   searchParams,
 }: {
-  searchParams: { token?: string };
+  searchParams: { token?: string; error?: string };
 }) {
   // If setup is already done, /setup is closed — bounce to /login.
   if (!(await isSetupMode())) {
     redirect('/login');
   }
 
-  // The user can land here two ways:
-  //   1. ?token=<setup-token>   — first visit; we exchange for a cookie
-  //   2. Already has cookie     — refreshing mid-wizard
+  // Two entry paths:
+  //   1. ?token=<setup-token>  — hand off to the route handler that sets
+  //      the signed cookie (cookie writes are illegal in Server Components),
+  //      then redirects back here clean.
+  //   2. Cookie already present — render the wizard.
   if (!hasValidSetupCookie()) {
     const t = searchParams.token ?? '';
-    if (!t) {
-      // No token, no cookie — show "where to find the token" hint.
-      return <NoTokenHint />;
+    if (t) {
+      redirect(`/api/setup/claim?token=${encodeURIComponent(t)}`);
     }
-    const ok = await claimSetupTokenFromUrl(t);
-    if (!ok) {
+    if (searchParams.error === 'bad-token') {
       return <BadTokenHint />;
     }
+    return <NoTokenHint />;
   }
 
   // Hydrate the wizard with whatever the user has already saved on previous
