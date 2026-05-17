@@ -81,9 +81,10 @@ care you would run any remote-admin tool:
 # 1. Clone and enter the project
 cd cachepanel
 
-# 2. Copy and edit env
+# 2. Copy and edit env — only NEXTAUTH_SECRET needs filling in;
+#    Discord OAuth and friends are configured in-panel after first boot.
 cp .env.example .env
-nano .env   # fill in NEXTAUTH_SECRET, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET
+nano .env
 
 # 3. Generate a strong NextAuth secret
 openssl rand -base64 32   # paste into NEXTAUTH_SECRET
@@ -91,11 +92,13 @@ openssl rand -base64 32   # paste into NEXTAUTH_SECRET
 # 4. Bring up the stack
 docker compose up -d --build
 
-# 5. Tail logs to watch the first migration + boot
+# 5. Tail logs — you'll see a bordered banner with the /setup URL
 docker compose logs -f app
 ```
 
-CachePanel is now available at <http://localhost:8992>.
+CachePanel is now available at <http://localhost:8992>. On first boot you'll
+see a banner in the logs with a one-time setup URL — open it, complete the
+4-step wizard (Discord OAuth + any optional integrations), and you're done.
 
 The **first** Discord user to log in becomes the OWNER. Every subsequent user
 lands on `/pending` until an OWNER (or an ADMIN, if `ADMIN_CAN_APPROVE_USERS=true`)
@@ -105,25 +108,19 @@ approves them on the **Users** page.
 
 ## Discord OAuth setup
 
+v1.7+: do this from the in-panel `/setup` wizard. The wizard walks you through
+creating a Discord application, hands you the exact redirect URL with a copy
+button, and validates the credentials before saving.
+
+If you're on v1.6 or earlier (or you want to script it via `.env`), the legacy
+keys still work as a fallback:
+
 1. Open <https://discord.com/developers/applications> → **New Application**.
 2. In **OAuth2 → General**, copy `Client ID` and `Client Secret` into your
-   `.env` (`DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`).
-3. Add the redirect URL:
-   ```
-   <NEXTAUTH_URL>/api/auth/callback/discord
-   ```
-   For example: `https://panel.example.com/api/auth/callback/discord`.
-4. (Optional) To restrict logins to one Discord server:
-   - Copy the server's ID into `DISCORD_GUILD_ID`.
-5. (Optional) To restrict logins to specific roles inside that server:
-   - Copy comma-separated role IDs into `DISCORD_ALLOWED_ROLE_IDS`.
-   - Requires `DISCORD_GUILD_ID` to be set as well.
-6. (Optional, **strongest**) To allow only specific Discord accounts:
-   - Enable Developer Mode in Discord (User Settings → Advanced).
-   - Right-click your username → **Copy User ID**.
-   - Paste comma-separated IDs into `DISCORD_ALLOWED_USER_IDS`.
-   - This check runs first and rejects everyone else before any Discord guild
-     lookup happens — useful if you don't run a Discord server at all.
+   `.env` as `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET`.
+3. Add the redirect URL `<NEXTAUTH_URL>/api/auth/callback/discord`.
+4. (Optional) Set `DISCORD_GUILD_ID`, `DISCORD_ALLOWED_ROLE_IDS`, or
+   `DISCORD_ALLOWED_USER_IDS` to gate logins. See `.env.example` for details.
 
 The Discord OAuth scope used is `identify email guilds guilds.members.read` —
 enough to look up guild membership and role assignments.
