@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 export async function GET() {
   const auth = await authorize();
   if (!auth.ok) return auth.response;
-  if (!isCloudflareConfigured()) {
+  if (!(await isCloudflareConfigured())) {
     return NextResponse.json({ configured: false, tunnels: [] });
   }
   try {

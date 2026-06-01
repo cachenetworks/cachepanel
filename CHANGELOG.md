@@ -2,6 +2,48 @@
 
 All notable changes to CachePanel.
 
+## v1.7.2 — 2026-05-17
+
+Rebuilt the first-run setup wizard around real validation. Every section
+that touches an external service now has a "Test connection" button that
+hits the service for real and reports back, so misconfigurations surface
+during setup instead of at first sign-in.
+
+### Added
+- **6-step wizard** (Welcome → Discord → Access → Docker → Cloudflare →
+  Ollama → Finish) replacing the previous 4-step flow. Sections are
+  individually saveable + skippable.
+- **Discord OAuth validator** — runs the client_credentials grant against
+  Discord's token endpoint, surfaces the two most common copy/paste
+  mistakes (Bot Token mistaken for Secret, stale Secret after Reset).
+- **Cloudflare credentials validator** — verifies token via
+  `/user/tokens/verify`, confirms account access, probes Tunnel + DNS
+  scopes, returns the account name on success.
+- **Docker socket validator** — distinguishes "not mounted" from
+  "permission denied" and tells the user the exact compose change
+  (group_add GID) needed for each.
+- **Ollama validator** — confirms reachability + lists installed models,
+  with a one-click model picker chip row.
+- **Cloudflare tunnel auto-provisioner** — paste API token + hostname,
+  and the wizard creates (or reuses) the tunnel, sets ingress, upserts
+  the proxied CNAME, and hands back the connector token plus the
+  docker/systemd install command.
+- **Welcome context probe** (`/api/setup/context`) — shows the detected
+  public URL, Discord callback URL, platform, docker-socket presence,
+  and lists network interfaces.
+- **Edit-from-Finish step** — review screen shows every value with a
+  one-click jump back to the section that owns it.
+- **SSH-to-host + terminal config now in wizard** instead of needing
+  manual `/settings` editing post-install.
+
+### Changed
+- `src/lib/cloudflare.ts` reads credentials from `AppSetting` first
+  (with env fallback) so wizard-saved creds work immediately, without
+  a container restart. `isCloudflareConfigured()` is now async.
+- `/api/setup/save` allowlist extended with `ssh_host`, `ssh_port`,
+  `ssh_user`, `ssh_key_path`, `terminal_enabled`, `terminal_shell`,
+  `terminal_user`.
+
 ## v1.7.1 — 2026-05-17 (hotfix)
 
 Two follow-on bugs from the v1.7.0 config-in-DB rollout that prevented

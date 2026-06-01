@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 export async function GET() {
   const auth = await authorize();
   if (!auth.ok) return auth.response;
-  if (!isCloudflareConfigured()) return NextResponse.json({ zones: [] });
+  if (!(await isCloudflareConfigured())) return NextResponse.json({ zones: [] });
   try {
     const zones = await listZones();
     return NextResponse.json({ zones });

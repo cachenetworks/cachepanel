@@ -43,6 +43,13 @@ export default async function SetupPage({
     'cloudflare_account_id',
     'ollama_host',
     'ollama_model',
+    'ssh_host',
+    'ssh_port',
+    'ssh_user',
+    'ssh_key_path',
+    'terminal_enabled',
+    'terminal_shell',
+    'terminal_user',
   ]);
   const env = getEnv();
 

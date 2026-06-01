@@ -7,7 +7,9 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 // Allowlist of keys the wizard is allowed to write — keeps anyone with a
-// stolen setup cookie from poking arbitrary AppSetting rows.
+// stolen setup cookie from poking arbitrary AppSetting rows. Mirrors the
+// fields the v1.7.2 wizard surfaces (Discord + access + Cloudflare + SSH-to-
+// host + Ollama + terminal).
 const ALLOWED: ConfigKey[] = [
   'discord_client_id',
   'discord_client_secret',
@@ -18,6 +20,13 @@ const ALLOWED: ConfigKey[] = [
   'cloudflare_account_id',
   'ollama_host',
   'ollama_model',
+  'ssh_host',
+  'ssh_port',
+  'ssh_user',
+  'ssh_key_path',
+  'terminal_enabled',
+  'terminal_shell',
+  'terminal_user',
 ];
 
 const bodySchema = z.record(z.string(), z.union([z.string(), z.array(z.string())]));
