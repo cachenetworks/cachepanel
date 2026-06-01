@@ -2,6 +2,26 @@
 
 All notable changes to CachePanel.
 
+## v1.7.4 — 2026-06-01
+
+Tiny but high-impact: filling in the wizard's SSH-to-host fields now
+auto-registers the install host as the panel's primary managed server,
+so the server picker isn't empty when you first sign in.
+
+### Fixed
+- `ensurePrimaryServer()` was still reading `SSH_HOST`/`SSH_USER` straight
+  from `process.env`, which silently broke when v1.7 moved those into
+  AppSetting. It now reads via `getConfig` with env-var fallback for
+  legacy installs.
+
+### Added
+- `/api/setup/complete` calls `ensurePrimaryServer()` right before
+  invalidating the setup token, so the host the wizard's user just
+  configured shows up under `/servers` on the very first page load
+  after sign-in.
+- Wizard's SSH-to-host section explains the auto-register behaviour and
+  hints at `host.docker.internal` for the same-box case.
+
 ## v1.7.3 — 2026-06-01
 
 Two big wins for first-run friction: the wizard now offers a one-command

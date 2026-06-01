@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { prisma } from './prisma';
 import type { Server } from '@prisma/client';
+import { getConfig } from './config';
 
 const SECRETS_DIR = process.env.SECRETS_DIR || '/run/secrets';
 const RUNTIME_SECRETS_DIR = process.env.RUNTIME_SECRETS_DIR || '/run/secrets-servers';
@@ -32,39 +33,61 @@ export function isMultiServerConfigured(): boolean {
   return true;
 }
 
-// Lazily ensure that a "primary" Server exists. Pulls config from the env
-// vars CachePanel has always used (SSH_HOST, SSH_USER, etc) so existing
-// installs migrate seamlessly.
+// Lazily ensure that a "primary" Server exists. Reads from getConfig (the
+// v1.7+ home for SSH-to-host settings) and falls back to SSH_* env vars for
+// legacy installs. As of v1.7.4 the setup wizard calls this directly when
+// the user clicks Finish, so the box CachePanel is installed on shows up
+// in the server picker without manual Add-Server clicks.
 let primaryEnsured = false;
 export async function ensurePrimaryServer(): Promise<Server | null> {
   if (primaryEnsured) {
     return prisma.server.findFirst({ where: { isPrimary: true } });
   }
+  // Mark eager so concurrent boot requests don't double-create. Cleared if
+  // the create fails so the next call retries.
   primaryEnsured = true;
 
-  const existing = await prisma.server.findFirst({ where: { isPrimary: true } });
-  if (existing) return existing;
+  try {
+    const existing = await prisma.server.findFirst({ where: { isPrimary: true } });
+    if (existing) return existing;
 
-  const sshHost = process.env.SSH_HOST || '';
-  const sshUser = process.env.SSH_USER || '';
-  if (!sshHost || !sshUser) {
-    // No SSH configured at all — no primary to create yet. The Servers admin
-    // page can let OWNER create one manually.
-    return null;
+    // Prefer wizard-saved values, fall back to legacy env vars.
+    const sshHost = (await getConfig('ssh_host')) || process.env.SSH_HOST || '';
+    const sshUser = (await getConfig('ssh_user')) || process.env.SSH_USER || '';
+    const sshPort = (await getConfig('ssh_port')) || parseInt(process.env.SSH_PORT || '22', 10);
+    const sshKey = (await getConfig('ssh_key_path')) || process.env.SSH_KEY_PATH || '';
+    const sshKnownHosts = process.env.SSH_KNOWN_HOSTS || '';
+
+    if (!sshHost || !sshUser) {
+      // No SSH configured at all — no primary to create yet. The Servers admin
+      // page can let OWNER create one manually.
+      primaryEnsured = false;
+      return null;
+    }
+    return await prisma.server.create({
+      data: {
+        name: 'primary',
+        hostname: sshHost,
+        port: typeof sshPort === 'number' ? sshPort : 22,
+        defaultUser: sshUser,
+        keyName: path.basename(sshKey || 'cachepanel_id_ed25519'),
+        knownHostsName: path.basename(sshKnownHosts || 'known_hosts'),
+        tags: 'primary,local',
+        isPrimary: true,
+        notes: 'Auto-created from setup wizard / SSH-to-host config.',
+      },
+    });
+  } catch (err) {
+    primaryEnsured = false;
+    throw err;
   }
-  return prisma.server.create({
-    data: {
-      name: 'primary',
-      hostname: sshHost,
-      port: parseInt(process.env.SSH_PORT || '22', 10),
-      defaultUser: sshUser,
-      keyName: path.basename(process.env.SSH_KEY_PATH || 'cachepanel_id_ed25519'),
-      knownHostsName: path.basename(process.env.SSH_KNOWN_HOSTS || 'known_hosts'),
-      tags: 'primary,local',
-      isPrimary: true,
-      notes: 'Auto-created on first boot from SSH_* environment variables.',
-    },
-  });
+}
+
+// Force-refresh: called from /api/setup/complete after the wizard saves
+// ssh_host/ssh_user, so the new values take effect without waiting for the
+// next module reload.
+export function resetPrimaryEnsuredCache(): void {
+  primaryEnsured = false;
 }
 
 export async function getServerById(id: string | null | undefined): Promise<Server | null> {

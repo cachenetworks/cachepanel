@@ -656,11 +656,18 @@ function DockerStep({
         ) : null}
       </Section>
 
-      <Section title="SSH-to-host (optional)" wide>
+      <Section title="SSH-to-host (optional, but recommended)" wide>
         <p className="text-xs text-foreground-muted">
           So the panel can <em>run shell commands on its own host</em>. Required for the built-in
-          terminal, scheduled jobs, file manager beyond the container, and treating this server
-          as the panel&apos;s "primary" server. Leave blank if you only want to manage containers.
+          terminal, scheduled jobs, file manager beyond the container, and treating this box as
+          the panel&apos;s <strong>primary</strong> managed server. <strong className="text-foreground">Fill this in
+          and the install host shows up in the server picker as soon as you click Finish</strong> —
+          no extra Add-Server step. Leave blank if you only want to manage containers.
+        </p>
+        <p className="mt-1 text-[11px] text-foreground-subtle">
+          Tip: if CachePanel is running in Docker on the same box you want to manage, host can be{' '}
+          <code>host.docker.internal</code> and user is whatever Linux account exists there (often{' '}
+          <code>root</code> or a dedicated <code>cache</code>).
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <Field label="Host or IP">
