@@ -7,6 +7,7 @@ import { authorize } from '@/lib/api-auth';
 import { prisma } from '@/lib/prisma';
 import { audit } from '@/lib/audit';
 import { getClientIp } from '@/lib/ip';
+import { getServerById, resolveSshSpec } from '@/lib/servers';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -84,6 +85,150 @@ function trySshOnce(opts: {
   });
 }
 
+// Probe the remote host's docker daemon over the same SSH connection. We
+// run `docker version` and a getent-based GID lookup in a single round trip
+// so the failure modes (no docker, no perms, no group membership) map to
+// the same UX the local Docker validator uses.
+//
+// Output is a small JSON-ish blob the route returns to the wizard, which
+// then either says "Docker is reachable" or surfaces an auto-fix hint.
+interface RemoteDockerCheck {
+  ok: boolean;
+  stage:
+    | 'connected'
+    | 'no-docker'
+    | 'permission-denied'
+    | 'no-socket'
+    | 'unknown'
+    | 'ssh-failed';
+  message: string;
+  /** GID of the docker group on the remote host (if we could detect it). */
+  socketGid?: number;
+  /** Docker version string if we got it. */
+  version?: string;
+  /** Suggested command the user runs on the remote host to fix the issue. */
+  fixHint?: string;
+}
+
+function probeRemoteDocker(opts: {
+  hostname: string;
+  port: number;
+  user: string;
+  keyPath: string;
+  knownHostsPath: string;
+}): Promise<RemoteDockerCheck> {
+  // One shell pipeline so we only pay one SSH round-trip. The script writes
+  // a small key=value blob we parse back.
+  // - SOCK_EXISTS: 0/1 from `test -S`
+  // - SOCK_GID: numeric GID of the socket (best effort)
+  // - DOCKER_OUT: stdout of `docker version --format ...` (or empty)
+  // - DOCKER_ERR: stderr of same, head 200 chars
+  // - DOCKER_RC: exit code of the docker call
+  const script = `set +e
+SOCK=/var/run/docker.sock
+if [ -S "$SOCK" ]; then SOCK_EXISTS=1; else SOCK_EXISTS=0; fi
+SOCK_GID=$(stat -c '%g' "$SOCK" 2>/dev/null || stat -f '%g' "$SOCK" 2>/dev/null)
+DOCKER_OUT=$(docker version --format '{{.Server.Version}}' 2>/tmp/cp.derr)
+DOCKER_RC=$?
+DOCKER_ERR=$(head -c 200 /tmp/cp.derr 2>/dev/null)
+rm -f /tmp/cp.derr 2>/dev/null
+printf 'SOCK_EXISTS=%s\\nSOCK_GID=%s\\nDOCKER_OUT=%s\\nDOCKER_RC=%s\\nDOCKER_ERR=%s\\n' "$SOCK_EXISTS" "$SOCK_GID" "$DOCKER_OUT" "$DOCKER_RC" "$DOCKER_ERR"`;
+  return new Promise((resolve) => {
+    const child = spawn('ssh', [
+      '-i', opts.keyPath,
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=5',
+      '-o', 'StrictHostKeyChecking=yes',
+      '-o', `UserKnownHostsFile=${opts.knownHostsPath}`,
+      '-p', String(opts.port),
+      `${opts.user}@${opts.hostname}`,
+      script,
+    ]);
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => child.kill('SIGKILL'), 10000);
+    child.stdout.on('data', (b) => (out += b.toString()));
+    child.stderr.on('data', (b) => (err += b.toString()));
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        resolve({
+          ok: false,
+          stage: 'ssh-failed',
+          message: `SSH probe failed: ${err.trim() || `exit ${code}`}`,
+        });
+        return;
+      }
+      const fields = parseKv(out);
+      const sockExists = fields.SOCK_EXISTS === '1';
+      const sockGid = fields.SOCK_GID ? parseInt(fields.SOCK_GID, 10) : undefined;
+      const dockerRc = fields.DOCKER_RC ? parseInt(fields.DOCKER_RC, 10) : 1;
+      const dockerErr = fields.DOCKER_ERR ?? '';
+      const dockerOut = fields.DOCKER_OUT ?? '';
+
+      if (dockerRc === 0 && dockerOut) {
+        resolve({
+          ok: true,
+          stage: 'connected',
+          version: dockerOut,
+          socketGid: sockGid,
+          message: `Docker ${dockerOut} reachable as ${opts.user}.`,
+        });
+        return;
+      }
+      if (!sockExists) {
+        resolve({
+          ok: false,
+          stage: 'no-socket',
+          message: `No /var/run/docker.sock on ${opts.hostname} — Docker isn't installed (or isn't running). Install Docker on the host first.`,
+          fixHint: `curl -fsSL https://get.docker.com | sudo sh && sudo systemctl enable --now docker`,
+        });
+        return;
+      }
+      if (/permission denied/i.test(dockerErr) || /cannot connect.*Got permission/i.test(dockerErr)) {
+        // Classic group-membership case. We CAN auto-fix this — usermod +
+        // log out / log in. We hand the user the exact command.
+        resolve({
+          ok: false,
+          stage: 'permission-denied',
+          socketGid: sockGid,
+          message: `SSH user ${opts.user} can't access the docker socket on ${opts.hostname}. Add ${opts.user} to the docker group, then re-test.`,
+          fixHint: `sudo usermod -aG docker ${opts.user} && sudo systemctl restart docker`,
+        });
+        return;
+      }
+      if (/command not found|docker: not found/i.test(dockerErr)) {
+        resolve({
+          ok: false,
+          stage: 'no-docker',
+          message: `The docker CLI isn't installed for ${opts.user} on ${opts.hostname}.`,
+          fixHint: `curl -fsSL https://get.docker.com | sudo sh`,
+        });
+        return;
+      }
+      resolve({
+        ok: false,
+        stage: 'unknown',
+        message: dockerErr.trim() || `docker exited ${dockerRc} with no error output.`,
+      });
+    });
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, stage: 'ssh-failed', message: e.message });
+    });
+  });
+}
+
+function parseKv(s: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of s.split('\n')) {
+    const eq = line.indexOf('=');
+    if (eq < 0) continue;
+    out[line.slice(0, eq)] = line.slice(eq + 1).trim();
+  }
+  return out;
+}
+
 export async function POST(req: Request) {
   const auth = await authorize({ requireOwner: true });
   if (!auth.ok) return auth.response;
@@ -132,6 +277,18 @@ export async function POST(req: Request) {
     );
   }
 
+  // SSH works — probe the remote docker daemon as a separate, non-fatal check.
+  // We surface the result to the wizard so the user can see + fix it before
+  // closing the dialog, but we never block server creation on a docker
+  // failure (the server might be a non-docker host they want for SSH only).
+  const dockerCheck = await probeRemoteDocker({
+    hostname,
+    port,
+    user: defaultUser,
+    keyPath,
+    knownHostsPath,
+  });
+
   // Persist the Server row.
   let created;
   try {
@@ -166,5 +323,31 @@ export async function POST(req: Request) {
   return NextResponse.json({
     server: created,
     probe: probe.output.trim(),
+    dockerCheck,
   });
+}
+
+// Allow the wizard's Step3 to re-test docker without re-running the whole
+// create flow (e.g. after the user ran the suggested usermod and SSHed
+// back out + in to refresh group membership). Server-id keyed so we can
+// look up the SSH spec via the existing servers lib.
+export async function GET(req: Request) {
+  const auth = await authorize({ requireOwner: true });
+  if (!auth.ok) return auth.response;
+  const url = new URL(req.url);
+  const serverId = url.searchParams.get('serverId');
+  if (!serverId) {
+    return NextResponse.json({ error: 'serverId required' }, { status: 400 });
+  }
+  const server = await getServerById(serverId);
+  if (!server) return NextResponse.json({ error: 'Server not found' }, { status: 404 });
+  const spec = await resolveSshSpec(server, auth.user.id);
+  const dockerCheck = await probeRemoteDocker({
+    hostname: spec.host,
+    port: spec.port,
+    user: spec.user,
+    keyPath: spec.keyPath,
+    knownHostsPath: spec.knownHosts,
+  });
+  return NextResponse.json({ dockerCheck });
 }

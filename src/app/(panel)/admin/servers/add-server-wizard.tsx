@@ -2,15 +2,18 @@
 
 import * as React from 'react';
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
   ClipboardCopy,
+  Container,
   Hammer,
   Loader2,
   ShieldCheck,
   Sparkles,
   TerminalSquare,
+  TestTube,
 } from 'lucide-react';
 import {
   Dialog,
@@ -37,6 +40,21 @@ interface SetupResponse {
   name: string;
 }
 
+interface DockerCheck {
+  ok: boolean;
+  stage: 'connected' | 'no-docker' | 'permission-denied' | 'no-socket' | 'unknown' | 'ssh-failed';
+  message: string;
+  socketGid?: number;
+  version?: string;
+  fixHint?: string;
+}
+
+interface CreatedServer {
+  id: string;
+  name: string;
+  hostname: string;
+}
+
 export function AddServerWizard({
   open,
   onClose,
@@ -59,14 +77,38 @@ export function AddServerWizard({
   const [setup, setSetup] = React.useState<SetupResponse | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [verifyError, setVerifyError] = React.useState<string | null>(null);
+  const [dockerCheck, setDockerCheck] = React.useState<DockerCheck | null>(null);
+  const [createdServer, setCreatedServer] = React.useState<CreatedServer | null>(null);
+  const [reTesting, setReTesting] = React.useState(false);
 
   React.useEffect(() => {
     if (!open) {
       setStep(1);
       setSetup(null);
       setVerifyError(null);
+      setDockerCheck(null);
+      setCreatedServer(null);
+      setReTesting(false);
     }
   }, [open]);
+
+  async function reTestDocker() {
+    if (!createdServer) return;
+    setReTesting(true);
+    try {
+      const r = await fetch(`/api/servers/finalize?serverId=${encodeURIComponent(createdServer.id)}`);
+      const body = await r.json();
+      if (r.ok && body.dockerCheck) {
+        setDockerCheck(body.dockerCheck);
+      } else {
+        toast({ variant: 'error', title: 'Re-test failed', description: body.error ?? `HTTP ${r.status}` });
+      }
+    } catch (err) {
+      toast({ variant: 'error', title: 'Re-test failed', description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setReTesting(false);
+    }
+  }
 
   function copy(text: string) {
     navigator.clipboard.writeText(text).then(
@@ -123,6 +165,14 @@ export function AddServerWizard({
         return;
       }
       toast({ variant: 'success', title: 'Server added', description: body.probe?.split('\n')[0] });
+      if (body.server) {
+        setCreatedServer({
+          id: body.server.id,
+          name: body.server.name,
+          hostname: body.server.hostname,
+        });
+      }
+      if (body.dockerCheck) setDockerCheck(body.dockerCheck);
       setStep(3);
       onCreated();
     } catch (err) {
@@ -173,7 +223,16 @@ export function AddServerWizard({
           />
         ) : null}
 
-        {step === 3 ? <Step3 onClose={onClose} /> : null}
+        {step === 3 ? (
+          <Step3
+            onClose={onClose}
+            dockerCheck={dockerCheck}
+            createdServer={createdServer}
+            onReTest={reTestDocker}
+            reTesting={reTesting}
+            onCopy={copy}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -382,22 +441,142 @@ function Step2({
   );
 }
 
-function Step3({ onClose }: { onClose: () => void }) {
+function Step3({
+  onClose,
+  dockerCheck,
+  createdServer,
+  onReTest,
+  reTesting,
+  onCopy,
+}: {
+  onClose: () => void;
+  dockerCheck: DockerCheck | null;
+  createdServer: CreatedServer | null;
+  onReTest: () => void;
+  reTesting: boolean;
+  onCopy: (v: string) => void;
+}) {
   return (
     <>
-      <div className="flex flex-col items-center gap-3 py-6 text-center">
+      <div className="flex flex-col items-center gap-3 py-4 text-center">
         <CheckCircle2 className="h-10 w-10 text-neon-green" />
-        <div className="text-lg font-semibold text-white">Server added</div>
+        <div className="text-lg font-semibold text-white">
+          Server added{createdServer ? ` — ${createdServer.name}` : ''}
+        </div>
         <p className="max-w-md text-sm text-white/60">
-          You can switch to it from the server picker in the top-right. The dashboard, files, and terminal will
-          target the new host. To grant individual panel users their own Linux account on this server, head to{' '}
+          Switch to it from the server picker in the top-right. To grant individual panel users
+          their own Linux account on this server, head to{' '}
           <span className="text-neon-green">Users → Manage SSH access</span>.
         </p>
       </div>
+
+      <DockerCheckPanel
+        check={dockerCheck}
+        server={createdServer}
+        onReTest={onReTest}
+        reTesting={reTesting}
+        onCopy={onCopy}
+      />
+
       <DialogFooter>
         <Button onClick={onClose}>Done</Button>
       </DialogFooter>
     </>
+  );
+}
+
+function DockerCheckPanel({
+  check,
+  server,
+  onReTest,
+  reTesting,
+  onCopy,
+}: {
+  check: DockerCheck | null;
+  server: CreatedServer | null;
+  onReTest: () => void;
+  reTesting: boolean;
+  onCopy: (v: string) => void;
+}) {
+  if (!check) return null;
+
+  if (check.ok) {
+    return (
+      <div className="mt-2 flex items-start gap-2 rounded-md border border-neon-green/30 bg-neon-green/5 p-3 text-xs">
+        <Container className="mt-0.5 h-4 w-4 shrink-0 text-neon-green" />
+        <div className="flex-1">
+          <div className="text-neon-green">{check.message}</div>
+          <div className="mt-0.5 text-[11px] text-white/45">
+            The panel can list containers, build images, and run docker-compose actions on this
+            host.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Failure — surface the fix hint as a copy-paste block + a re-test button.
+  const stageLabel: Record<DockerCheck['stage'], string> = {
+    connected: 'Connected',
+    'no-docker': 'Docker not installed',
+    'permission-denied': 'Permission denied',
+    'no-socket': 'No Docker socket',
+    unknown: 'Unknown error',
+    'ssh-failed': 'SSH probe failed',
+  };
+
+  return (
+    <div className="mt-2 rounded-md border border-yellow-500/40 bg-yellow-500/5 p-3 text-xs">
+      <div className="flex items-start gap-2 text-yellow-200">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="flex-1">
+          <div className="font-medium">Docker check: {stageLabel[check.stage]}</div>
+          <div className="mt-0.5 text-white/65">{check.message}</div>
+        </div>
+      </div>
+
+      {check.fixHint ? (
+        <>
+          <div className="mt-3 text-[10px] uppercase tracking-wider text-white/40">
+            Run on {server?.hostname ?? 'the remote host'} as a sudoer
+          </div>
+          <div className="mt-1 flex items-start gap-2 rounded-md border border-white/10 bg-black/60 p-2">
+            <pre className="flex-1 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-neon-green">
+              {check.fixHint}
+            </pre>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onCopy(check.fixHint!)}
+              aria-label="Copy fix command"
+            >
+              <ClipboardCopy className="h-3 w-3" />
+            </Button>
+          </div>
+          {check.stage === 'permission-denied' ? (
+            <div className="mt-2 text-[11px] text-white/50">
+              After running this, log out and back in on the remote box (or restart the SSH
+              session) so the new group membership takes effect — then click <strong>Re-test</strong>.
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      <div className="mt-3 flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={onReTest} disabled={reTesting || !server}>
+          {reTesting ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <TestTube className="h-3 w-3" />
+          )}
+          {reTesting ? 'Re-testing…' : 'Re-test Docker'}
+        </Button>
+        <span className="text-[11px] text-white/40">
+          Server is saved either way. Docker access can be fixed any time from{' '}
+          <span className="text-white/65">/admin/servers</span>.
+        </span>
+      </div>
+    </div>
   );
 }
 

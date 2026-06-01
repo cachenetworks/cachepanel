@@ -2,6 +2,33 @@
 
 All notable changes to CachePanel.
 
+## v1.7.5 — 2026-06-01
+
+The Add-Server dialog now checks Docker on the new host as part of the
+finalize probe and offers a copy-paste fix in the success step. So
+"add a managed server" and "make Docker reachable on it" are one flow,
+matching the wizard's local-Docker auto-fix UX.
+
+### Added
+- `/api/servers/finalize` POST now runs a one-round-trip remote probe
+  for `/var/run/docker.sock` + `docker version`, classifies failures
+  into `no-socket` / `permission-denied` / `no-docker` / `unknown`,
+  and returns a `dockerCheck` blob with a pre-built fix-hint command
+  for each.
+- New `/api/servers/finalize?serverId=…` GET to re-run the same
+  remote Docker probe without re-creating the server — used by Step 3
+  of the Add-Server wizard's "Re-test" button.
+- Add-Server wizard's Step 3 (success screen) now renders a
+  Docker-check panel: green pass message OR a yellow notice with
+  the exact `usermod -aG docker <user>` / `get.docker.com` command
+  pre-filled for the host, plus a Re-test button.
+
+### Notes
+- Docker failure no longer blocks server creation. The server is saved
+  either way — users can still SSH-only-manage non-docker hosts, and
+  the Docker check can be re-run from the Add-Server flow or any
+  future Docker page action.
+
 ## v1.7.4 — 2026-06-01
 
 Tiny but high-impact: filling in the wizard's SSH-to-host fields now
