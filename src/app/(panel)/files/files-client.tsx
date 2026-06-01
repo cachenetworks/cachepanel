@@ -855,11 +855,11 @@ function VirtualRootGrid({
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     {d.mountType === 'volume' && d.volume ? (
-                      <Badge variant="outline" className="border-neon-magenta/30 text-[10px] text-neon-magenta">
+                      <Badge tone="magenta" className="text-[10px]">
                         volume: {d.volume}
                       </Badge>
                     ) : (
-                      <Badge variant="outline" className="border-white/15 text-[10px] text-white/55">
+                      <Badge tone="neutral" className="text-[10px]">
                         {d.mountType}
                       </Badge>
                     )}
