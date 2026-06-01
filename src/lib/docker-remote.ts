@@ -152,6 +152,13 @@ export async function listRemoteContainers(opts: RemoteRunOpts): Promise<DockerC
           status: c.Status,
           createdAt: parseDockerDate(c.CreatedAt),
           ports: parsePortsString(c.Ports),
+          // `docker ps --format` doesn't surface mounts; remote-host volume
+          // browsing would need `docker inspect <id>` per container. Not
+          // worth the round-trip cost right now — leave empty so the
+          // file-manager "container volumes" section only populates from
+          // the local daemon (where we have the unix-socket API and get
+          // mounts for free in containers/json).
+          mounts: [],
         });
       } catch {
         /* skip malformed line */
