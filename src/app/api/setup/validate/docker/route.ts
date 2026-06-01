@@ -2,11 +2,17 @@ import { NextResponse } from 'next/server';
 import http from 'node:http';
 import { promises as fs } from 'node:fs';
 import { hasValidSetupCookie } from '@/lib/setup-token';
+import { getEnv } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const SOCKET_PATH = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
+
+function fixDockerOneliner(): string {
+  const base = getEnv().NEXTAUTH_URL.replace(/\/+$/, '');
+  return `curl -fsSL "${base}/api/setup/fix-docker?fmt=sh" | sudo bash`;
+}
 
 interface DockerVersion {
   Version: string;
@@ -42,7 +48,8 @@ async function runCheck() {
       return NextResponse.json({
         ok: false,
         stage: 'socket-missing',
-        message: `${SOCKET_PATH} is not mounted into the container. Add this to your docker-compose.yml under cachepanel.volumes: "/var/run/docker.sock:/var/run/docker.sock", then docker compose up -d.`,
+        autoFixOneliner: fixDockerOneliner(),
+        message: `${SOCKET_PATH} is not mounted into the container. The wizard can fix this for you — run the one-liner below on the host (it'll also add the bind mount if missing).`,
       });
     }
     return NextResponse.json({
@@ -68,7 +75,8 @@ async function runCheck() {
         ok: false,
         stage: 'permission-denied',
         socketGid: gid,
-        message: `Permission denied reading ${SOCKET_PATH}. The socket is owned by GID ${gid} on the host — add "${gid}" to the cachepanel service's group_add list in docker-compose.yml, then recreate the container.`,
+        autoFixOneliner: fixDockerOneliner(),
+        message: `Permission denied reading ${SOCKET_PATH}. The socket is owned by GID ${gid} on the host. The wizard can fix this for you — run the one-liner below on the host.`,
       });
     }
     return NextResponse.json({

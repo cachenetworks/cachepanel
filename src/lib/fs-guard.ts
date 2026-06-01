@@ -23,6 +23,24 @@ export class FsGuardError extends Error {
   }
 }
 
+// Docker-volume host paths (e.g. /var/lib/docker/volumes/<name>/_data and
+// per-container bind-mount sources) are auto-allowlisted on a per-request
+// basis so users can browse container data from the file manager without
+// having to widen ALLOWED_FILE_ROOTS to expose the whole host. Pre-fetched
+// once per request and passed to resolveSafePath via the `extraRoots` opt.
+//
+// Lazy-loaded to avoid pulling docker-roots into pages that don't need it.
+export async function getDockerVolumeRoots(): Promise<string[]> {
+  try {
+    const mod = await import('./docker-roots');
+    const roots = await mod.listDockerRoots();
+    // Dedupe — multiple containers can share the same source path.
+    return Array.from(new Set(roots.map((r) => path.resolve(r.path))));
+  } catch {
+    return [];
+  }
+}
+
 function normalizeAbsolute(p: string): string {
   if (!p) throw new FsGuardError('Path is required', 400);
   // Reject NUL bytes — node will reject anyway, but be explicit.
@@ -48,6 +66,12 @@ export interface ResolveOptions {
   isOwner: boolean;
   /** Permit reading/writing .env files (OWNER only when ALLOW_DOTENV_ACCESS=true). */
   allowDotenv?: boolean;
+  /**
+   * Extra allowed roots merged on top of getAllowedRoots(). Used to grant
+   * access to docker-volume / bind-mount source paths surfaced by
+   * getDockerVolumeRoots() without permanently widening the configured roots.
+   */
+  extraRoots?: string[];
 }
 
 export interface ResolvedPath {
@@ -64,7 +88,9 @@ export interface ResolvedPath {
 export function resolveSafePath(input: string, opts: ResolveOptions): ResolvedPath {
   const env = getEnv();
   const abs = normalizeAbsolute(input);
-  const roots = getAllowedRoots();
+  const baseRoots = getAllowedRoots();
+  const extra = (opts.extraRoots ?? []).map((r) => path.resolve(r));
+  const roots = [...baseRoots, ...extra];
   if (roots.length === 0) {
     throw new FsGuardError('No file roots are configured. Set ALLOWED_FILE_ROOTS.', 403);
   }
@@ -98,6 +124,19 @@ export function resolveSafePath(input: string, opts: ResolveOptions): ResolvedPa
     basename === 'credentials' ||
     basename === '.htpasswd';
   return { absolute: abs, root, isSensitive, basename };
+}
+
+/**
+ * Pre-fetches docker-volume roots and resolves the path against the union of
+ * the configured roots + those volume paths. Use this anywhere the user
+ * might point at a container volume / bind mount from the file manager.
+ */
+export async function resolveSafePathWithDocker(
+  input: string,
+  opts: ResolveOptions,
+): Promise<ResolvedPath> {
+  const extraRoots = await getDockerVolumeRoots();
+  return resolveSafePath(input, { ...opts, extraRoots: [...(opts.extraRoots ?? []), ...extraRoots] });
 }
 
 export async function statSafe(absolute: string) {

@@ -10,6 +10,7 @@ import {
   Folder,
   FolderPlus,
   HardDrive,
+  Boxes,
   Home,
   MoreVertical,
   RefreshCw,
@@ -52,6 +53,13 @@ interface Item {
   modifiedAt: string | null;
   isSensitive?: boolean;
   isRoot?: boolean;
+  /** Virtual-root shortcuts only: 'system' (allowed root) or 'docker' (container mount). */
+  kind?: 'system' | 'docker';
+  /** docker kind only */
+  container?: string;
+  destination?: string;
+  volume?: string | null;
+  mountType?: string;
 }
 
 interface ListResponse {
@@ -62,6 +70,7 @@ interface ListResponse {
   items: Item[];
   roots: string[];
   source?: 'host-ssh' | 'container';
+  dockerRootCount?: number;
 }
 
 function PathBreadcrumb({ path, onNavigate }: { path: string; onNavigate: (p: string) => void }) {
@@ -312,32 +321,10 @@ export function FilesClient() {
       </div>
 
       {data && data.isVirtualRoot ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {data.items.map((root) => (
-            <button
-              key={root.path}
-              onClick={() => setCwd(root.path)}
-              className="glass group flex items-center gap-3 p-4 text-left transition-all hover:border-neon-green/40 hover:shadow-neon-green"
-            >
-              <div className="rounded-lg border border-neon-green/30 bg-neon-green/10 p-2 text-neon-green">
-                <HardDrive className="h-4 w-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium text-white">{root.path}</div>
-                <div className="text-[11px] text-white/40">allowed root</div>
-              </div>
-              <ChevronRight className="h-4 w-4 text-white/30 group-hover:text-neon-green" />
-            </button>
-          ))}
-          {data.items.length === 0 ? (
-            <EmptyState
-              icon={<ShieldAlert className="h-8 w-8" />}
-              title="No file roots configured"
-              description="Set ALLOWED_FILE_ROOTS in your environment to enable the file manager."
-              className="md:col-span-2 lg:col-span-3"
-            />
-          ) : null}
-        </div>
+        <VirtualRootGrid
+          items={data.items}
+          onNavigate={(p) => setCwd(p)}
+        />
       ) : (
         <Card className="p-0">
           {loading && !data ? (
@@ -792,6 +779,99 @@ function LogTailModal({
           {content || '(waiting for output…)'}
         </pre>
       </div>
+    </div>
+  );
+}
+
+// Virtual-root landing view: shows allowed filesystem roots in one section
+// and every running container's mounts in a second section so users can
+// browse named volumes (under /var/lib/docker/volumes/) and bind mounts
+// without knowing the host-side path layout.
+function VirtualRootGrid({
+  items,
+  onNavigate,
+}: {
+  items: Item[];
+  onNavigate: (path: string) => void;
+}) {
+  const system = items.filter((i) => i.kind !== 'docker');
+  const docker = items.filter((i) => i.kind === 'docker');
+
+  return (
+    <div className="space-y-8">
+      <section>
+        <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-wider text-white/40">
+          <HardDrive className="h-3.5 w-3.5" />
+          Filesystem roots
+        </div>
+        {system.length === 0 ? (
+          <EmptyState
+            icon={<ShieldAlert className="h-8 w-8" />}
+            title="No file roots configured"
+            description="Set ALLOWED_FILE_ROOTS in your environment to enable the file manager."
+          />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {system.map((root) => (
+              <button
+                key={root.path}
+                onClick={() => onNavigate(root.path)}
+                className="glass group flex items-center gap-3 p-4 text-left transition-all hover:border-neon-green/40 hover:shadow-neon-green"
+              >
+                <div className="rounded-lg border border-neon-green/30 bg-neon-green/10 p-2 text-neon-green">
+                  <HardDrive className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-white">{root.path}</div>
+                  <div className="text-[11px] text-white/40">allowed root</div>
+                </div>
+                <ChevronRight className="h-4 w-4 text-white/30 group-hover:text-neon-green" />
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {docker.length > 0 ? (
+        <section>
+          <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-wider text-white/40">
+            <Boxes className="h-3.5 w-3.5" />
+            Container volumes ({docker.length})
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {docker.map((d) => (
+              <button
+                key={`${d.container}-${d.path}`}
+                onClick={() => onNavigate(d.path)}
+                className="glass group flex items-start gap-3 p-4 text-left transition-all hover:border-neon-magenta/40 hover:shadow-neon-magenta"
+              >
+                <div className="rounded-lg border border-neon-magenta/30 bg-neon-magenta/10 p-2 text-neon-magenta">
+                  <Boxes className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-white">{d.container}</div>
+                  <div className="mt-0.5 truncate text-[11px] text-white/55">
+                    <span className="text-white/35">container:</span> {d.destination}
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {d.mountType === 'volume' && d.volume ? (
+                      <Badge variant="outline" className="border-neon-magenta/30 text-[10px] text-neon-magenta">
+                        volume: {d.volume}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-white/15 text-[10px] text-white/55">
+                        {d.mountType}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="mt-1 truncate font-mono text-[10px] text-white/35">{d.path}</div>
+                </div>
+                <ChevronRight className="h-4 w-4 text-white/30 group-hover:text-neon-magenta" />
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

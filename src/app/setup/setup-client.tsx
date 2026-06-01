@@ -646,21 +646,13 @@ function DockerStep({
         <div className="mt-3">
           <TestRow canTest testing={testing} onTest={runTest} result={test} />
         </div>
-        {test && !test.ok && test.stage === 'permission-denied' ? (
-          <Notice tone="warn">
-            <strong>Quick fix:</strong> open <code>/opt/cachepanel/docker-compose.yml</code>, find
-            the <code>group_add:</code> list under the <code>cachepanel</code> service, and make
-            sure the host&apos;s docker GID (<code>{String(test.socketGid)}</code>) is in the list.
-            Then <code>docker compose up -d</code>.
-          </Notice>
-        ) : null}
-        {test && !test.ok && test.stage === 'socket-missing' ? (
-          <Notice tone="warn">
-            <strong>Quick fix:</strong> add{' '}
-            <code>- /var/run/docker.sock:/var/run/docker.sock</code> to the cachepanel service&apos;s{' '}
-            <code>volumes:</code> in <code>/opt/cachepanel/docker-compose.yml</code>, then{' '}
-            <code>docker compose up -d</code>.
-          </Notice>
+        {test && !test.ok && (test.stage === 'permission-denied' || test.stage === 'socket-missing') ? (
+          <AutoFixDocker
+            stage={test.stage as 'permission-denied' | 'socket-missing'}
+            socketGid={test.socketGid as number | undefined}
+            oneliner={test.autoFixOneliner as string | undefined}
+            onRetest={runTest}
+          />
         ) : null}
       </Section>
 
@@ -1018,6 +1010,60 @@ function CommandBlock({ label, command }: { label: string; command: string }) {
           {copied ? <CheckCircle2 className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
           {copied ? 'Copied' : 'Copy'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Docker auto-fix block — surfaced when the validator can't reach the socket
+// ----------------------------------------------------------------------------
+
+function AutoFixDocker({
+  stage,
+  socketGid,
+  oneliner,
+  onRetest,
+}: {
+  stage: 'permission-denied' | 'socket-missing';
+  socketGid?: number;
+  oneliner?: string;
+  onRetest: () => void;
+}) {
+  return (
+    <div className="mt-3 rounded-md border border-neon-magenta/40 bg-neon-magenta/5 p-3 text-xs">
+      <div className="flex items-center gap-2 text-neon-magenta">
+        <Sparkles className="h-3.5 w-3.5" />
+        <strong>The wizard can fix this for you.</strong>
+      </div>
+      <p className="mt-2 text-foreground-muted">
+        {stage === 'permission-denied' ? (
+          <>
+            The docker socket on your host is owned by GID{' '}
+            <code>{String(socketGid ?? '?')}</code>. Run the one-liner below on the host — it
+            backs up <code>docker-compose.yml</code>, adds that GID to <code>group_add</code>{' '}
+            (idempotent), and recreates the cachepanel container.
+          </>
+        ) : (
+          <>
+            The docker socket isn&apos;t mounted into the container. Run the one-liner below on
+            the host — it adds the bind mount + group, then recreates the cachepanel container.
+          </>
+        )}
+      </p>
+      {oneliner ? <CommandBlock label="run on the host" command={oneliner} /> : null}
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onRetest}
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-foreground-muted hover:text-foreground"
+        >
+          <TestTube className="h-3 w-3" />
+          Re-test after running
+        </button>
+        <span className="text-[11px] text-foreground-subtle">
+          (The container will restart — give it ~10s, then re-test.)
+        </span>
       </div>
     </div>
   );

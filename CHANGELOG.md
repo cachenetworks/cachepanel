@@ -2,6 +2,41 @@
 
 All notable changes to CachePanel.
 
+## v1.7.3 — 2026-06-01
+
+Two big wins for first-run friction: the wizard now offers a one-command
+fix when the Docker socket is unreachable, and the file manager surfaces
+every container's volumes as virtual roots so users can browse named
+volumes (under `/var/lib/docker/volumes/`) and bind mounts without
+hand-editing `ALLOWED_FILE_ROOTS`.
+
+### Added
+- **Docker auto-fix endpoint** at `/api/setup/fix-docker` returns a
+  signed bash script that detects the host docker GID, backs up
+  `/opt/cachepanel/docker-compose.yml`, idempotently adds the GID to
+  `group_add` (creating the block if missing), adds the
+  `/var/run/docker.sock` bind mount if missing, and recreates the
+  cachepanel container. The setup wizard shows this as a copy-paste
+  one-liner whenever the docker test reports `permission-denied` or
+  `socket-missing`.
+- **Container volumes in file manager.** `/api/files/list` returns
+  one virtual root per (container × mount) in the landing view. Each
+  shortcut shows the container name, in-container destination path,
+  and the volume name (for named volumes) or `bind`/`volume` badge.
+  `/api/files/docker-roots` exposes the same data for sidebars.
+- **Auto-allowlist of docker volume host paths.** New
+  `resolveSafePathWithDocker` helper used by every files endpoint
+  expands the allowed-roots list with paths surfaced by
+  `listDockerRoots()`, so reading/writing inside container volumes
+  works without permanently widening `ALLOWED_FILE_ROOTS`. Sensitive-
+  file blocklist still applies.
+
+### Changed
+- `listContainers()` now returns each container's `mounts[]` array
+  (type, source, destination, volume name, read-only flag).
+- Setup-wizard `AutoFixDocker` block replaces the previous static
+  "Quick fix" instructions with the live one-liner + re-test button.
+
 ## v1.7.2 — 2026-05-17
 
 Rebuilt the first-run setup wizard around real validation. Every section

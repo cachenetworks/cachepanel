@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import path from 'node:path';
 import { authorize } from '@/lib/api-auth';
-import { FsGuardError, resolveSafePath } from '@/lib/fs-guard';
+import { FsGuardError, resolveSafePathWithDocker } from '@/lib/fs-guard';
 import { audit } from '@/lib/audit';
 import { prisma } from '@/lib/prisma';
 import { getClientIp } from '@/lib/ip';
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const destDir = resolveSafePath(dest, { isOwner: auth.user.role === 'OWNER' });
+    const destDir = await resolveSafePathWithDocker(dest, { isOwner: auth.user.role === 'OWNER' });
     const opts = { serverId: getRequestServerId(req), userId: auth.user.id };
     const stat = await hostStat(destDir.absolute, opts);
     if (!stat || stat.type !== 'directory') {
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
     }
     const safeName = path.basename(file.name).replace(/[/\\]/g, '_');
     const targetPath = path.posix.join(destDir.absolute.replace(/\\/g, '/'), safeName);
-    const target = resolveSafePath(targetPath, { isOwner: auth.user.role === 'OWNER' });
+    const target = await resolveSafePathWithDocker(targetPath, { isOwner: auth.user.role === 'OWNER' });
     if (await hostStat(target.absolute, opts)) {
       return NextResponse.json({ error: 'A file with that name already exists.' }, { status: 409 });
     }

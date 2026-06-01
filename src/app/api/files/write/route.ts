@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/api-auth';
-import { FsGuardError, isLikelyText, resolveSafePath } from '@/lib/fs-guard';
+import { FsGuardError, isLikelyText, resolveSafePathWithDocker } from '@/lib/fs-guard';
 import { audit } from '@/lib/audit';
 import { prisma } from '@/lib/prisma';
 import { getClientIp } from '@/lib/ip';
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid body' }, { status: 400 });
 
   try {
-    const resolved = resolveSafePath(parsed.data.path, { isOwner: auth.user.role === 'OWNER' });
+    const resolved = await resolveSafePathWithDocker(parsed.data.path, { isOwner: auth.user.role === 'OWNER' });
     if (!isLikelyText(resolved.absolute)) {
       return NextResponse.json({ error: 'Refusing to overwrite a non-text file.' }, { status: 400 });
     }

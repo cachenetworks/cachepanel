@@ -108,6 +108,17 @@ export async function getDockerInfo(): Promise<DockerInfo> {
   }
 }
 
+export interface DockerMount {
+  type: 'bind' | 'volume' | 'tmpfs' | string;
+  /** Host-side path. For named volumes this is /var/lib/docker/volumes/<name>/_data. */
+  source: string;
+  /** Path inside the container. */
+  destination: string;
+  /** Volume name (only set when type === 'volume'). */
+  name: string | null;
+  readOnly: boolean;
+}
+
 export interface DockerContainer {
   id: string;
   name: string;
@@ -116,6 +127,15 @@ export interface DockerContainer {
   status: string;
   createdAt: string;
   ports: Array<{ private: number; public: number | null; type: string; ip: string | null }>;
+  mounts: DockerMount[];
+}
+
+interface ApiMount {
+  Type?: string;
+  Source?: string;
+  Destination?: string;
+  Name?: string;
+  RW?: boolean;
 }
 
 interface ApiContainer {
@@ -126,6 +146,7 @@ interface ApiContainer {
   Status: string;
   Created: number;
   Ports?: Array<{ PrivatePort: number; PublicPort?: number; Type?: string; IP?: string }>;
+  Mounts?: ApiMount[];
 }
 
 export async function listContainers(): Promise<DockerContainer[]> {
@@ -143,6 +164,13 @@ export async function listContainers(): Promise<DockerContainer[]> {
         public: p.PublicPort ?? null,
         type: p.Type ?? 'tcp',
         ip: p.IP ?? null,
+      })),
+      mounts: (c.Mounts ?? []).map((m) => ({
+        type: (m.Type ?? 'bind') as DockerMount['type'],
+        source: m.Source ?? '',
+        destination: m.Destination ?? '',
+        name: m.Name ?? null,
+        readOnly: m.RW === false,
       })),
     }));
   } catch {

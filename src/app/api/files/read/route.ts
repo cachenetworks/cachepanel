@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/api-auth';
-import { FsGuardError, isLikelyText, resolveSafePath } from '@/lib/fs-guard';
+import { FsGuardError, isLikelyText, resolveSafePathWithDocker } from '@/lib/fs-guard';
 import { hostReadText, hostStat } from '@/lib/host-fs';
 import { getRequestServerId } from '@/lib/req-server';
 
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
 
   const opts = { serverId: getRequestServerId(req), userId: auth.user.id };
   try {
-    const resolved = resolveSafePath(requested, { isOwner: auth.user.role === 'OWNER' });
+    const resolved = await resolveSafePathWithDocker(requested, { isOwner: auth.user.role === 'OWNER' });
     const stat = await hostStat(resolved.absolute, opts);
     if (!stat) return NextResponse.json({ error: 'File not found' }, { status: 404 });
     if (stat.type !== 'file') return NextResponse.json({ error: 'Not a file' }, { status: 400 });

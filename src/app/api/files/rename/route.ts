@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/api-auth';
-import { FsGuardError, resolveSafePath } from '@/lib/fs-guard';
+import { FsGuardError, resolveSafePathWithDocker } from '@/lib/fs-guard';
 import { audit } from '@/lib/audit';
 import { prisma } from '@/lib/prisma';
 import { getClientIp } from '@/lib/ip';
@@ -21,8 +21,8 @@ export async function POST(req: Request) {
 
   try {
     const isOwner = auth.user.role === 'OWNER';
-    const from = resolveSafePath(parsed.data.from, { isOwner });
-    const to = resolveSafePath(parsed.data.to, { isOwner });
+    const from = await resolveSafePathWithDocker(parsed.data.from, { isOwner });
+    const to = await resolveSafePathWithDocker(parsed.data.to, { isOwner });
     const opts = { serverId: getRequestServerId(req), userId: auth.user.id };
     const fromStat = await hostStat(from.absolute, opts);
     if (!fromStat) return NextResponse.json({ error: 'Source not found' }, { status: 404 });

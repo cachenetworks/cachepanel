@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import path from 'node:path';
 import { authorize } from '@/lib/api-auth';
-import { FsGuardError, resolveSafePath } from '@/lib/fs-guard';
+import { FsGuardError, resolveSafePathWithDocker } from '@/lib/fs-guard';
 import { hostReadBuffer, hostStat } from '@/lib/host-fs';
 import { getRequestServerId } from '@/lib/req-server';
 
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   if (!requested) return NextResponse.json({ error: 'Missing path' }, { status: 400 });
 
   try {
-    const resolved = resolveSafePath(requested, { isOwner: auth.user.role === 'OWNER' });
+    const resolved = await resolveSafePathWithDocker(requested, { isOwner: auth.user.role === 'OWNER' });
     const opts = { serverId: getRequestServerId(req), userId: auth.user.id };
     const stat = await hostStat(resolved.absolute, opts);
     if (!stat) return NextResponse.json({ error: 'Not found' }, { status: 404 });

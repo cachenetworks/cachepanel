@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/api-auth';
-import { FsGuardError, resolveSafePath } from '@/lib/fs-guard';
+import { FsGuardError, resolveSafePathWithDocker } from '@/lib/fs-guard';
 import { runOnHost } from '@/lib/host-probe';
 import { getRequestServerId } from '@/lib/req-server';
 
@@ -31,7 +31,7 @@ export async function GET(req: Request) {
 
   const opts = { serverId: getRequestServerId(req), userId: auth.user.id };
   try {
-    const resolved = resolveSafePath(requested, { isOwner: auth.user.role === 'OWNER' });
+    const resolved = await resolveSafePathWithDocker(requested, { isOwner: auth.user.role === 'OWNER' });
 
     // Get current size + read tail in one round trip. `stat -c%s` is the
     // GNU coreutils flag; BusyBox stat uses different flags but on Alpine

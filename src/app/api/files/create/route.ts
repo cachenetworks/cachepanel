@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { authorize } from '@/lib/api-auth';
-import { FsGuardError, resolveSafePath } from '@/lib/fs-guard';
+import { FsGuardError, resolveSafePathWithDocker } from '@/lib/fs-guard';
 import { audit } from '@/lib/audit';
 import { prisma } from '@/lib/prisma';
 import { getClientIp } from '@/lib/ip';
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
   const opts = { serverId: getRequestServerId(req), userId: auth.user.id };
   try {
-    const resolved = resolveSafePath(parsed.data.path, { isOwner: auth.user.role === 'OWNER' });
+    const resolved = await resolveSafePathWithDocker(parsed.data.path, { isOwner: auth.user.role === 'OWNER' });
     if (await hostStat(resolved.absolute, opts)) {
       return NextResponse.json({ error: 'Path already exists' }, { status: 409 });
     }
