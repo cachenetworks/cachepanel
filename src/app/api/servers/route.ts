@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { audit } from '@/lib/audit';
 import { getClientIp } from '@/lib/ip';
 import { ensurePrimaryServer, listServers } from '@/lib/servers';
+import { resetUsingHostCache } from '@/lib/host-fs';
 import { serverCreateSchema } from '@/lib/server-validation';
 
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,7 @@ export async function POST(req: Request) {
       addedById: auth.user.id,
     },
   });
+  resetUsingHostCache();
   await audit({
     userId: auth.user.id,
     action: 'settings.changed',

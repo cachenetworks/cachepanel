@@ -82,7 +82,7 @@ export async function GET(req: Request) {
       items: [...systemItems.filter(Boolean), ...dockerItems],
       roots,
       unrestricted: isUnrestricted,
-      source: usingHost() ? 'host-ssh' : 'container',
+      source: (await usingHost()) ? 'host-ssh' : 'container',
       dockerRootCount: dockerItems.length,
     });
   }
@@ -128,7 +128,7 @@ export async function GET(req: Request) {
       root: resolved.root,
       items,
       roots: getAllowedRoots(),
-      source: usingHost() ? 'host-ssh' : 'container',
+      source: (await usingHost()) ? 'host-ssh' : 'container',
     });
   } catch (err) {
     if (err instanceof FsGuardError) return NextResponse.json({ error: err.message }, { status: err.status });

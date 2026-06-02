@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { audit } from '@/lib/audit';
 import { getClientIp } from '@/lib/ip';
 import { getServerById, resolveSshSpec } from '@/lib/servers';
+import { resetUsingHostCache } from '@/lib/host-fs';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -305,6 +306,7 @@ export async function POST(req: Request) {
         addedById: auth.user.id,
       },
     });
+    resetUsingHostCache();
   } catch (err) {
     return NextResponse.json(
       { error: 'A server with that name already exists, or another DB error: ' + (err instanceof Error ? err.message : String(err)) },

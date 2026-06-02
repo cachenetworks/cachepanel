@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import { prisma } from './prisma';
 import type { Server } from '@prisma/client';
 import { getConfig } from './config';
+import { resetUsingHostCache } from './host-fs';
 
 const SECRETS_DIR = process.env.SECRETS_DIR || '/run/secrets';
 const RUNTIME_SECRETS_DIR = process.env.RUNTIME_SECRETS_DIR || '/run/secrets-servers';
@@ -64,7 +65,7 @@ export async function ensurePrimaryServer(): Promise<Server | null> {
       primaryEnsured = false;
       return null;
     }
-    return await prisma.server.create({
+    const created = await prisma.server.create({
       data: {
         name: 'primary',
         hostname: sshHost,
@@ -77,6 +78,10 @@ export async function ensurePrimaryServer(): Promise<Server | null> {
         notes: 'Auto-created from setup wizard / SSH-to-host config.',
       },
     });
+    // Drop the usingHost cache so the next request sees the new row
+    // immediately instead of waiting out the TTL.
+    resetUsingHostCache();
+    return created;
   } catch (err) {
     primaryEnsured = false;
     throw err;

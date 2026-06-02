@@ -2,6 +2,27 @@
 
 All notable changes to CachePanel.
 
+## v1.7.6 — 2026-06-01 (hotfix)
+
+The CONTAINER badge stuck on the Files page when a primary Server row
+existed but no SSH_HOST env var was set — i.e. every v1.7+ install
+that used the wizard. File manager silently rendered the panel's own
+container fs instead of the host even though SSH was wired up.
+
+### Fixed
+- `usingHost()` was still doing `process.env.SSH_HOST && SSH_USER` to
+  decide whether to route through SSH or local fs. Same env-only-check
+  bug class as `ensurePrimaryServer()` — now async, checks
+  `prisma.server.count() > 0` with a 3s cache, falls back to the env
+  check only when the DB is unreachable.
+- All callers (`hostListDir`, `hostStat`, `hostReadText`,
+  `hostWriteText`, `hostDelete`, `hostRename`, `hostCreate`,
+  `hostUploadBuffer`) + the `source` field on `/api/files/list`
+  responses updated to await it.
+- `ensurePrimaryServer` and both `/api/servers` create paths now
+  invalidate the `usingHost` cache after writing a row, so the next
+  request flips from container → host immediately.
+
 ## v1.7.5 — 2026-06-01
 
 The Add-Server dialog now checks Docker on the new host as part of the

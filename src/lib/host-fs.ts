@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { runOnHost } from './host-probe';
 import { getServerById, resolveSshSpec, sshArgs } from './servers';
+import { prisma } from './prisma';
 
 export interface HostStat {
   type: 'file' | 'directory' | 'symlink';
@@ -26,11 +27,34 @@ export interface HostOpts {
   userId?: string | null;
 }
 
-export function usingHost(): boolean {
-  // We have a primary server iff SSH_HOST is configured (auto-imported).
-  // Multi-server installs can also have manually-added rows, so this is a
-  // conservative "yes there's at least one host" check.
-  return !!(process.env.SSH_HOST && process.env.SSH_USER);
+// Async: returns true iff there's at least one Server row in the DB, i.e.
+// the panel has at least one host it can SSH into. v1.7 moved SSH config
+// into AppSetting / the Server table, so the old env-only check is wrong
+// and silently falls back to local-container fs when a primary IS configured.
+//
+// 3-second cache so we don't slam SQLite on every list call.
+let _hostCache: { value: boolean; until: number } | null = null;
+const HOST_CACHE_MS = 3_000;
+
+export async function usingHost(): Promise<boolean> {
+  const now = Date.now();
+  if (_hostCache && _hostCache.until > now) return _hostCache.value;
+  let value = false;
+  try {
+    const count = await prisma.server.count();
+    value = count > 0;
+  } catch {
+    // DB unreachable — fall back to the env check so legacy installs that
+    // never created a Server row still route to SSH if they had SSH_HOST set.
+    value = !!(process.env.SSH_HOST && process.env.SSH_USER);
+  }
+  _hostCache = { value, until: now + HOST_CACHE_MS };
+  return value;
+}
+
+// Test hook + lets ensurePrimaryServer() invalidate after creating a row.
+export function resetUsingHostCache(): void {
+  _hostCache = null;
 }
 
 function shellQuote(s: string): string {
@@ -38,7 +62,7 @@ function shellQuote(s: string): string {
 }
 
 export async function hostListDir(absPath: string, opts: HostOpts = {}): Promise<HostEntry[] | null> {
-  if (usingHost()) {
+  if (await usingHost()) {
     const cmd =
       `cd ${shellQuote(absPath)} 2>/dev/null && ` +
       `LC_ALL=C find . -mindepth 1 -maxdepth 1 -printf '%y|||%s|||%T@|||%f\\0' 2>/dev/null`;
@@ -81,7 +105,7 @@ export async function hostListDir(absPath: string, opts: HostOpts = {}): Promise
 }
 
 export async function hostStat(absPath: string, opts: HostOpts = {}): Promise<HostStat | null> {
-  if (usingHost()) {
+  if (await usingHost()) {
     const r = await runOnHost(`stat -c '%F|||%s|||%Y' ${shellQuote(absPath)} 2>/dev/null`, opts);
     if (r.code !== 0 || !r.stdout.trim()) return null;
     const [kind, sizeStr, mtimeStr] = r.stdout.trim().split('|||');
@@ -107,7 +131,7 @@ export async function hostStat(absPath: string, opts: HostOpts = {}): Promise<Ho
 }
 
 export async function hostReadText(absPath: string, maxBytes: number, opts: HostOpts = {}): Promise<string | null> {
-  if (usingHost()) {
+  if (await usingHost()) {
     const r = await runOnHost(
       `head -c ${maxBytes + 1} ${shellQuote(absPath)} 2>/dev/null | base64 -w0`,
       { ...opts, timeoutMs: 10_000 },
@@ -125,7 +149,7 @@ export async function hostReadText(absPath: string, maxBytes: number, opts: Host
 }
 
 export async function hostWriteText(absPath: string, content: string, opts: HostOpts = {}): Promise<boolean> {
-  if (usingHost()) {
+  if (await usingHost()) {
     const b64 = Buffer.from(content, 'utf-8').toString('base64');
     const cmd = `mkdir -p ${shellQuote(path.dirname(absPath))} && base64 -d > ${shellQuote(absPath)}`;
     const r = await runOnHostStdin(cmd, b64, opts);
@@ -141,7 +165,7 @@ export async function hostWriteText(absPath: string, content: string, opts: Host
 }
 
 export async function hostDelete(absPath: string, opts: HostOpts = {}): Promise<boolean> {
-  if (usingHost()) {
+  if (await usingHost()) {
     const r = await runOnHost(`rm -rf ${shellQuote(absPath)}`, { ...opts, timeoutMs: 15_000 });
     return r.code === 0;
   }
@@ -156,7 +180,7 @@ export async function hostDelete(absPath: string, opts: HostOpts = {}): Promise<
 }
 
 export async function hostRename(from: string, to: string, opts: HostOpts = {}): Promise<boolean> {
-  if (usingHost()) {
+  if (await usingHost()) {
     const r = await runOnHost(`mv ${shellQuote(from)} ${shellQuote(to)}`, { ...opts, timeoutMs: 8000 });
     return r.code === 0;
   }
@@ -169,7 +193,7 @@ export async function hostRename(from: string, to: string, opts: HostOpts = {}):
 }
 
 export async function hostCreate(absPath: string, type: 'file' | 'folder', opts: HostOpts = {}): Promise<boolean> {
-  if (usingHost()) {
+  if (await usingHost()) {
     const cmd =
       type === 'folder'
         ? `mkdir -p ${shellQuote(absPath)}`
@@ -190,7 +214,7 @@ export async function hostCreate(absPath: string, type: 'file' | 'folder', opts:
 }
 
 export async function hostUploadBuffer(absPath: string, buf: Buffer, opts: HostOpts = {}): Promise<boolean> {
-  if (usingHost()) {
+  if (await usingHost()) {
     const b64 = buf.toString('base64');
     const cmd = `mkdir -p ${shellQuote(path.dirname(absPath))} && base64 -d > ${shellQuote(absPath)}`;
     const r = await runOnHostStdin(cmd, b64, opts);
@@ -206,7 +230,7 @@ export async function hostUploadBuffer(absPath: string, buf: Buffer, opts: HostO
 }
 
 export async function hostReadBuffer(absPath: string, maxBytes: number, opts: HostOpts = {}): Promise<Buffer | null> {
-  if (usingHost()) {
+  if (await usingHost()) {
     const r = await runOnHost(
       `head -c ${maxBytes + 1} ${shellQuote(absPath)} 2>/dev/null | base64 -w0`,
       { ...opts, timeoutMs: 60_000 },
