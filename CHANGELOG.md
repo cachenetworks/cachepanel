@@ -2,6 +2,17 @@
 
 All notable changes to CachePanel.
 
+## v1.7.7 — 2026-06-02
+
+### Added
+- **Find / Find+Replace in the file-manager text editor.** Ctrl+F opens
+  the find bar, Ctrl+H opens replace, Enter / Shift+Enter (or F3 /
+  Shift+F3) jumps next/prev, Esc closes. Toggles for case-sensitive
+  and regex; live match count (`3/47`); Replace + Replace All; invalid
+  regex shows an inline error instead of breaking the editor. Browser
+  Ctrl+F is intercepted while the textarea has focus because it
+  can't see inside `<textarea>` content.
+
 ## v1.7.6 — 2026-06-01 (hotfix)
 
 The CONTAINER badge stuck on the Files page when a primary Server row

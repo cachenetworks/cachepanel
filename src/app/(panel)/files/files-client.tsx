@@ -12,6 +12,12 @@ import {
   HardDrive,
   Boxes,
   Home,
+  Search,
+  Replace,
+  CaseSensitive,
+  Regex,
+  ArrowUp,
+  ArrowDown,
   MoreVertical,
   RefreshCw,
   Save,
@@ -442,13 +448,13 @@ export function FilesClient() {
               <span className="truncate">{editing?.path}</span>
               {editing?.sensitive ? <Badge tone="yellow">sensitive</Badge> : null}
             </DialogTitle>
-            <DialogDescription>Text mode editor — saved as UTF-8.</DialogDescription>
+            <DialogDescription>
+              Text mode editor — saved as UTF-8. <span className="text-white/40">Ctrl+F to find · Ctrl+H to replace · Esc to close search</span>
+            </DialogDescription>
           </DialogHeader>
-          <Textarea
-            value={editing?.content ?? ''}
-            onChange={(e) => setEditing((prev) => (prev ? { ...prev, content: e.target.value } : prev))}
-            className="h-[55vh] resize-none"
-            spellCheck={false}
+          <FileEditor
+            content={editing?.content ?? ''}
+            onChange={(c) => setEditing((prev) => (prev ? { ...prev, content: c } : prev))}
           />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setEditing(null)}>
@@ -874,4 +880,306 @@ function VirtualRootGrid({
       ) : null}
     </div>
   );
+}
+
+// Text editor with built-in find / find+replace. Ctrl+F opens find, Ctrl+H
+// opens replace, Enter or F3 jumps to next match, Shift+Enter or Shift+F3
+// to previous, Esc closes the bar. Case-sensitivity + regex toggles persist
+// across opens via local state on the component (not localStorage — these
+// are workflow toggles, not user prefs).
+function FileEditor({
+  content,
+  onChange,
+}: {
+  content: string;
+  onChange: (next: string) => void;
+}) {
+  const taRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const findInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [open, setOpen] = React.useState<false | 'find' | 'replace'>(false);
+  const [query, setQuery] = React.useState('');
+  const [replacement, setReplacement] = React.useState('');
+  const [caseSensitive, setCaseSensitive] = React.useState(false);
+  const [useRegex, setUseRegex] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // Find all match ranges in the current content + selectedIndex tracking.
+  const matches = React.useMemo(() => {
+    setError(null);
+    if (!query) return [] as Array<[number, number]>;
+    const out: Array<[number, number]> = [];
+    if (useRegex) {
+      try {
+        const re = new RegExp(query, caseSensitive ? 'g' : 'gi');
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(content)) !== null) {
+          // Guard against zero-width matches like `\b` — bail to avoid an infinite loop
+          if (m.index === re.lastIndex) re.lastIndex++;
+          else out.push([m.index, m.index + m[0].length]);
+          if (out.length > 5_000) break; // sanity cap
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Invalid regex');
+        return [];
+      }
+    } else {
+      const hay = caseSensitive ? content : content.toLowerCase();
+      const needle = caseSensitive ? query : query.toLowerCase();
+      let i = hay.indexOf(needle);
+      while (i !== -1) {
+        out.push([i, i + needle.length]);
+        i = hay.indexOf(needle, i + Math.max(1, needle.length));
+        if (out.length > 5_000) break;
+      }
+    }
+    return out;
+  }, [query, content, caseSensitive, useRegex]);
+
+  const [activeIdx, setActiveIdx] = React.useState(0);
+
+  // Reset active index when matches change shape — clamp to range.
+  React.useEffect(() => {
+    if (matches.length === 0) setActiveIdx(0);
+    else if (activeIdx >= matches.length) setActiveIdx(0);
+  }, [matches, activeIdx]);
+
+  function jumpTo(idx: number) {
+    const ta = taRef.current;
+    const m = matches[idx];
+    if (!ta || !m) return;
+    ta.focus();
+    ta.setSelectionRange(m[0], m[1]);
+    // Scroll the selection into view. Textareas don't have scrollIntoViewIfNeeded
+    // for the selection, so use a temporary char-count approximation: line index
+    // * line height. Cheap and good enough for nav.
+    const linesBefore = content.slice(0, m[0]).split('\n').length - 1;
+    const lh = parseFloat(getComputedStyle(ta).lineHeight) || 16;
+    const target = linesBefore * lh - ta.clientHeight / 2;
+    ta.scrollTop = Math.max(0, target);
+  }
+
+  function next() {
+    if (matches.length === 0) return;
+    const i = (activeIdx + 1) % matches.length;
+    setActiveIdx(i);
+    jumpTo(i);
+  }
+  function prev() {
+    if (matches.length === 0) return;
+    const i = (activeIdx - 1 + matches.length) % matches.length;
+    setActiveIdx(i);
+    jumpTo(i);
+  }
+
+  function replaceOne() {
+    if (matches.length === 0) return;
+    const [start, end] = matches[activeIdx]!;
+    const replaced = useRegex
+      ? content.slice(0, start) + content.slice(start, end).replace(buildRegex(query, caseSensitive), replacement) + content.slice(end)
+      : content.slice(0, start) + replacement + content.slice(end);
+    onChange(replaced);
+    // After replace, the textarea content updates async via parent; advance
+    // the active index but DO NOT call jumpTo — the new matches array will
+    // re-compute and we let the user hit next manually.
+  }
+
+  function replaceAll() {
+    if (matches.length === 0) return;
+    let next: string;
+    if (useRegex) {
+      try {
+        const re = new RegExp(query, caseSensitive ? 'g' : 'gi');
+        next = content.replace(re, replacement);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Invalid regex');
+        return;
+      }
+    } else if (caseSensitive) {
+      next = content.split(query).join(replacement);
+    } else {
+      // Case-insensitive plain replace — build an escaped regex.
+      const re = new RegExp(escapeRegex(query), 'gi');
+      next = content.replace(re, replacement);
+    }
+    onChange(next);
+  }
+
+  // Open find/replace, focus + select the input.
+  function openFind(mode: 'find' | 'replace') {
+    setOpen(mode);
+    // Defer focus until the input renders.
+    setTimeout(() => {
+      findInputRef.current?.focus();
+      findInputRef.current?.select();
+    }, 0);
+  }
+
+  // Textarea-scoped key handler. Browser Ctrl+F would otherwise open the
+  // browser find bar, which can't see textarea contents — intercept.
+  function onTextareaKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      openFind('find');
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+      e.preventDefault();
+      openFind('replace');
+    }
+  }
+
+  function onFindKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+      taRef.current?.focus();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) prev();
+      else next();
+    } else if (e.key === 'F3') {
+      e.preventDefault();
+      if (e.shiftKey) prev();
+      else next();
+    }
+  }
+
+  return (
+    <div className="relative">
+      {open ? (
+        <div className="absolute right-2 top-2 z-10 w-[min(420px,calc(100%-1rem))] rounded-md border border-white/15 bg-background-card/95 shadow-lg backdrop-blur">
+          <div className="flex items-center gap-1 p-2">
+            <Search className="ml-1 h-3.5 w-3.5 text-white/40" />
+            <input
+              ref={findInputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onFindKey}
+              placeholder="Find"
+              className="flex-1 rounded border border-white/10 bg-black/30 px-2 py-1 font-mono text-xs text-white outline-none focus:border-neon-green/40"
+              spellCheck={false}
+            />
+            <span className="min-w-[60px] text-center text-[10px] tabular-nums text-white/55">
+              {matches.length === 0
+                ? query
+                  ? '0/0'
+                  : '—'
+                : `${activeIdx + 1}/${matches.length}`}
+            </span>
+            <button
+              type="button"
+              onClick={prev}
+              disabled={matches.length === 0}
+              title="Previous (Shift+Enter)"
+              className="rounded p-1 text-white/55 hover:bg-white/5 hover:text-white disabled:opacity-30"
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={next}
+              disabled={matches.length === 0}
+              title="Next (Enter)"
+              className="rounded p-1 text-white/55 hover:bg-white/5 hover:text-white disabled:opacity-30"
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setCaseSensitive((v) => !v)}
+              title="Match case"
+              className={cn(
+                'rounded p-1 hover:bg-white/5',
+                caseSensitive ? 'bg-neon-green/15 text-neon-green' : 'text-white/55',
+              )}
+            >
+              <CaseSensitive className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setUseRegex((v) => !v)}
+              title="Regex"
+              className={cn(
+                'rounded p-1 hover:bg-white/5',
+                useRegex ? 'bg-neon-green/15 text-neon-green' : 'text-white/55',
+              )}
+            >
+              <Regex className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(open === 'replace' ? 'find' : 'replace')}
+              title={open === 'replace' ? 'Hide replace' : 'Show replace (Ctrl+H)'}
+              className={cn(
+                'rounded p-1 hover:bg-white/5',
+                open === 'replace' ? 'bg-neon-magenta/15 text-neon-magenta' : 'text-white/55',
+              )}
+            >
+              <Replace className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                taRef.current?.focus();
+              }}
+              title="Close (Esc)"
+              className="rounded p-1 text-white/55 hover:bg-white/5 hover:text-white"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {open === 'replace' ? (
+            <div className="flex items-center gap-1 border-t border-white/10 p-2">
+              <Replace className="ml-1 h-3.5 w-3.5 text-white/40" />
+              <input
+                value={replacement}
+                onChange={(e) => setReplacement(e.target.value)}
+                placeholder="Replace with"
+                className="flex-1 rounded border border-white/10 bg-black/30 px-2 py-1 font-mono text-xs text-white outline-none focus:border-neon-magenta/40"
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                onClick={replaceOne}
+                disabled={matches.length === 0}
+                title="Replace current match"
+                className="rounded border border-white/10 px-2 py-1 text-[11px] text-white/70 hover:border-neon-magenta/40 hover:text-white disabled:opacity-30"
+              >
+                Replace
+              </button>
+              <button
+                type="button"
+                onClick={replaceAll}
+                disabled={matches.length === 0}
+                title="Replace all matches"
+                className="rounded border border-white/10 px-2 py-1 text-[11px] text-white/70 hover:border-neon-magenta/40 hover:text-white disabled:opacity-30"
+              >
+                All
+              </button>
+            </div>
+          ) : null}
+          {error ? (
+            <div className="border-t border-red-500/30 bg-red-500/10 px-3 py-1 font-mono text-[10px] text-red-300">
+              {error}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <Textarea
+        ref={taRef}
+        value={content}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onTextareaKey}
+        className="h-[55vh] resize-none font-mono"
+        spellCheck={false}
+      />
+    </div>
+  );
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildRegex(query: string, caseSensitive: boolean): RegExp {
+  return new RegExp(query, caseSensitive ? '' : 'i');
 }
