@@ -63,6 +63,41 @@ export async function runOnHost(
   });
 }
 
+// Same as runOnHost but with stdin piped in. Used by writeBytes / writeText
+// and by the Linux adapter's crontab updater. Moved out of host-fs in v1.8.0
+// so the adapter modules can share it without circular deps.
+export async function runOnHostStdin(
+  command: string,
+  stdin: string,
+  optsOrTimeout: number | RunOpts = 60_000,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const opts: RunOpts =
+    typeof optsOrTimeout === 'number' ? { timeoutMs: optsOrTimeout } : optsOrTimeout;
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  const server = await getServerById(opts.serverId);
+  if (!server) return { stdout: '', stderr: 'No server configured', code: -1 };
+  const spec = await resolveSshSpec(server, opts.userId ?? null);
+  const args = sshArgs(spec, []);
+  args.push(command);
+  return new Promise((resolve) => {
+    const child = spawn('ssh', args);
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+    child.stdout.on('data', (b) => (stdout += b.toString()));
+    child.stderr.on('data', (b) => (stderr += b.toString()));
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr, code: code ?? -1 });
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      resolve({ stdout: '', stderr: err.message, code: -1 });
+    });
+    child.stdin.end(stdin);
+  });
+}
+
 export interface HostGpu {
   vendor: string | null;
   model: string | null;
@@ -244,6 +279,34 @@ export async function getHostSnapshot(server?: Server | null): Promise<HostSnaps
   const sid = server?.id ?? '__primary__';
   const cached = getCached<HostSnapshot>(`snap:${sid}`);
   if (cached) return cached;
+
+  // OS fork: Windows hosts can't run /proc/* or awk-based parsing. Route
+  // through the WindowsRemoteAdapter which uses Get-CimInstance and returns
+  // an already-normalised blob.
+  if (server && (server.os ?? 'linux') === 'windows') {
+    const { getAdapter } = await import('./host-adapter');
+    const adapter = await getAdapter(server);
+    const s = await adapter.snapshot();
+    if (!s) return null;
+    const value: HostSnapshot = {
+      hostname: s.hostname ?? 'windows',
+      uptimeSeconds: s.uptimeSec,
+      kernel: s.osRelease, // Windows doesn't have a kernel string; reuse OS string
+      loadAvg: s.cpuLoad1m,
+      memTotalKb: s.memTotalMb ? s.memTotalMb * 1024 : null,
+      memAvailableKb: s.memFreeMb ? s.memFreeMb * 1024 : null,
+      cpuPct: s.cpuLoad1m !== null ? Math.min(100, (s.cpuLoad1m ?? 0) * 100) : null,
+      cpuCores: s.cpuCount,
+      diskTotalBytes: s.diskTotalGb ? s.diskTotalGb * 1024 * 1024 * 1024 : null,
+      diskUsedBytes: s.diskUsedGb ? s.diskUsedGb * 1024 * 1024 * 1024 : null,
+      distro: s.osRelease,
+      release: null,
+      arch: null,
+      nodeVersion: null,
+    };
+    setCached(`snap:${sid}`, value);
+    return value;
+  }
 
   // Single SSH round-trip that emits one line per field.
   const probe = await runOnHost(

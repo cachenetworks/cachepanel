@@ -124,6 +124,13 @@ export async function POST(req: Request) {
     const debianCmd = tunnelToken
       ? `sudo cloudflared service install ${tunnelToken} && sudo systemctl enable --now cloudflared`
       : null;
+    // v1.8.0: Windows variant. cloudflared ships a Windows MSI; we link to
+    // the installer page rather than auto-downloading, since the user may
+    // need to choose between amd64 / arm64. Once installed, the service is
+    // identical (`cloudflared service install <token>`).
+    const windowsCmd = tunnelToken
+      ? `# Install: winget install -e --id Cloudflare.cloudflared\r\ncloudflared.exe service install ${tunnelToken}`
+      : null;
 
     return NextResponse.json({
       ok: true,
@@ -137,6 +144,7 @@ export async function POST(req: Request) {
       tunnelToken: tunnelToken ?? null,
       dockerCmd,
       debianCmd,
+      windowsCmd,
       message: reused
         ? `Reused existing tunnel "${tunnelName}", updated ingress + DNS for ${hostname}.`
         : `Created tunnel "${tunnelName}", routed ${hostname} → ${localService}.`,

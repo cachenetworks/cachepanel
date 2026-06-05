@@ -73,6 +73,8 @@ export function AddServerWizard({
     remoteUser: 'root',
     tags: '',
     notes: '',
+    // v1.8.0: explicit OS pick. "auto" runs uname-or-ver on finalize.
+    os: 'auto' as 'auto' | 'linux' | 'windows',
   });
   const [setup, setSetup] = React.useState<SetupResponse | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -157,6 +159,7 @@ export function AddServerWizard({
           keyName: setup.keyName,
           tags: draft.tags,
           notes: draft.notes,
+          os: draft.os,
         }),
       });
       const body = await r.json();
@@ -284,8 +287,8 @@ function Step1({
   onNext,
   onCancel,
 }: {
-  draft: { name: string; hostname: string; port: number; remoteUser: string; tags: string; notes: string };
-  setDraft: React.Dispatch<React.SetStateAction<{ name: string; hostname: string; port: number; remoteUser: string; tags: string; notes: string }>>;
+  draft: { name: string; hostname: string; port: number; remoteUser: string; tags: string; notes: string; os: 'auto' | 'linux' | 'windows' };
+  setDraft: React.Dispatch<React.SetStateAction<{ name: string; hostname: string; port: number; remoteUser: string; tags: string; notes: string; os: 'auto' | 'linux' | 'windows' }>>;
   busy: boolean;
   onNext: () => void;
   onCancel: () => void;
@@ -327,14 +330,39 @@ function Step1({
             />
           </Field>
         </div>
-        <Field label="Linux user CachePanel will SSH as">
+        <Field label={draft.os === 'windows' ? 'Windows user (local account)' : 'Linux user CachePanel will SSH as'}>
           <Input
             value={draft.remoteUser}
             onChange={(e) => setDraft({ ...draft, remoteUser: e.target.value })}
-            placeholder="root, cache, ubuntu, deploy…"
+            placeholder={draft.os === 'windows' ? 'Administrator, cache…' : 'root, cache, ubuntu, deploy…'}
           />
           <p className="mt-1 text-[11px] text-white/40">
             This account must already exist on the remote box and be allowed to SSH in.
+            {draft.os === 'windows' ? (
+              <> Windows hosts need OpenSSH Server enabled (Settings → Apps → Optional Features → OpenSSH Server).</>
+            ) : null}
+          </p>
+        </Field>
+        <Field label="Operating system">
+          <div className="flex gap-2">
+            {(['auto', 'linux', 'windows'] as const).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setDraft({ ...draft, os: opt })}
+                className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  draft.os === opt
+                    ? 'border-neon-magenta/50 bg-neon-magenta/10 text-neon-magenta'
+                    : 'border-white/10 bg-white/[0.02] text-white/60 hover:border-white/20 hover:text-white'
+                }`}
+              >
+                {opt === 'auto' ? 'Auto-detect' : opt === 'linux' ? 'Linux' : 'Windows'}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-white/40">
+            Auto-detect runs <code>uname || ver</code> on first connect. Override if you know the
+            answer (handy for OpenSSH-on-Windows where the default cmd shell trips the probe).
           </p>
         </Field>
       </div>

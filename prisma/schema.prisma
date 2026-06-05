@@ -138,6 +138,12 @@ model Server {
   isPrimary      Boolean  @default(false)
   notes          String?
   addedById      String?
+  // v1.8.0: remote-OS bookkeeping. `os` is "linux" | "windows" | "unknown"
+  // and is populated by host-os.detect() on the first successful connect.
+  // `shellPath` overrides the default shell on Windows (pwsh vs powershell);
+  // null = adapter picks (pwsh -> powershell.exe fallback).
+  os             String   @default("unknown")
+  shellPath      String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

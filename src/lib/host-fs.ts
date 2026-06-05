@@ -1,13 +1,19 @@
-// Filesystem operations that transparently run on the SSH host. Multi-server
-// aware: pass { serverId, userId } in opts to target a specific managed host.
-// With no opts, falls back to the primary server.
+// Filesystem operations that transparently route to the right place:
+//   - A managed remote host (Linux via POSIX shell OR Windows via PowerShell),
+//   - …or the panel's local container filesystem when no Server is configured.
+//
+// Multi-server aware: pass { serverId, userId } in opts to target a specific
+// managed host. With no opts, falls back to the primary server.
+//
+// As of v1.8.0 every "host" code path goes through `getAdapter(server)`
+// (from host-adapter.ts) so the rest of the codebase doesn't need to know
+// whether the target runs Linux or Windows.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { runOnHost } from './host-probe';
-import { getServerById, resolveSshSpec, sshArgs } from './servers';
 import { prisma } from './prisma';
+import { getServerById } from './servers';
+import { getAdapter } from './host-adapter';
 
 export interface HostStat {
   type: 'file' | 'directory' | 'symlink';
@@ -27,15 +33,16 @@ export interface HostOpts {
   userId?: string | null;
 }
 
-// Async: returns true iff there's at least one Server row in the DB, i.e.
-// the panel has at least one host it can SSH into. v1.7 moved SSH config
-// into AppSetting / the Server table, so the old env-only check is wrong
-// and silently falls back to local-container fs when a primary IS configured.
-//
 // 3-second cache so we don't slam SQLite on every list call.
 let _hostCache: { value: boolean; until: number } | null = null;
 const HOST_CACHE_MS = 3_000;
 
+/**
+ * Returns true iff there's at least one Server row, i.e. the panel has at
+ * least one host it can SSH into. DB-aware (v1.7.6 fix); falls back to the
+ * env check only when the DB is unreachable so legacy installs with
+ * SSH_HOST set still route to SSH if they had it.
+ */
 export async function usingHost(): Promise<boolean> {
   const now = Date.now();
   if (_hostCache && _hostCache.until > now) return _hostCache.value;
@@ -44,47 +51,29 @@ export async function usingHost(): Promise<boolean> {
     const count = await prisma.server.count();
     value = count > 0;
   } catch {
-    // DB unreachable — fall back to the env check so legacy installs that
-    // never created a Server row still route to SSH if they had SSH_HOST set.
     value = !!(process.env.SSH_HOST && process.env.SSH_USER);
   }
   _hostCache = { value, until: now + HOST_CACHE_MS };
   return value;
 }
 
-// Test hook + lets ensurePrimaryServer() invalidate after creating a row.
 export function resetUsingHostCache(): void {
   _hostCache = null;
 }
 
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
+// Internal: resolve the right adapter for a given (server, user) pair. Returns
+// null when no managed server exists yet, signalling the caller to fall back
+// to local-container fs.
+async function adapterFor(opts: HostOpts) {
+  const server = await getServerById(opts.serverId);
+  if (!server) return null;
+  return getAdapter(server);
 }
 
 export async function hostListDir(absPath: string, opts: HostOpts = {}): Promise<HostEntry[] | null> {
   if (await usingHost()) {
-    const cmd =
-      `cd ${shellQuote(absPath)} 2>/dev/null && ` +
-      `LC_ALL=C find . -mindepth 1 -maxdepth 1 -printf '%y|||%s|||%T@|||%f\\0' 2>/dev/null`;
-    const r = await runOnHost(cmd, { ...opts, timeoutMs: 8000 });
-    if (r.code !== 0 && !r.stdout) return null;
-    const out: HostEntry[] = [];
-    for (const rec of r.stdout.split('\0')) {
-      if (!rec) continue;
-      const [kind, sizeStr, mtimeStr, name] = rec.split('|||');
-      if (!name) continue;
-      let type: HostEntry['type'] = 'file';
-      if (kind === 'd') type = 'directory';
-      else if (kind === 'l') type = 'symlink';
-      const mtime = parseFloat(mtimeStr ?? '');
-      out.push({
-        name,
-        type,
-        size: parseInt(sizeStr ?? '0', 10) || 0,
-        modifiedAt: Number.isFinite(mtime) ? new Date(mtime * 1000).toISOString() : null,
-      });
-    }
-    return out;
+    const ad = await adapterFor(opts);
+    if (ad) return ad.listDir(absPath, { userId: opts.userId ?? null });
   }
   try {
     const entries = await fs.readdir(absPath, { withFileTypes: true });
@@ -106,17 +95,8 @@ export async function hostListDir(absPath: string, opts: HostOpts = {}): Promise
 
 export async function hostStat(absPath: string, opts: HostOpts = {}): Promise<HostStat | null> {
   if (await usingHost()) {
-    const r = await runOnHost(`stat -c '%F|||%s|||%Y' ${shellQuote(absPath)} 2>/dev/null`, opts);
-    if (r.code !== 0 || !r.stdout.trim()) return null;
-    const [kind, sizeStr, mtimeStr] = r.stdout.trim().split('|||');
-    const type: HostStat['type'] =
-      kind === 'directory' ? 'directory' : kind === 'symbolic link' ? 'symlink' : 'file';
-    const mtime = parseInt(mtimeStr ?? '', 10);
-    return {
-      type,
-      size: parseInt(sizeStr ?? '0', 10) || 0,
-      modifiedAt: Number.isFinite(mtime) ? new Date(mtime * 1000).toISOString() : null,
-    };
+    const ad = await adapterFor(opts);
+    if (ad) return ad.stat(absPath, { userId: opts.userId ?? null });
   }
   try {
     const s = await fs.stat(absPath);
@@ -132,14 +112,8 @@ export async function hostStat(absPath: string, opts: HostOpts = {}): Promise<Ho
 
 export async function hostReadText(absPath: string, maxBytes: number, opts: HostOpts = {}): Promise<string | null> {
   if (await usingHost()) {
-    const r = await runOnHost(
-      `head -c ${maxBytes + 1} ${shellQuote(absPath)} 2>/dev/null | base64 -w0`,
-      { ...opts, timeoutMs: 10_000 },
-    );
-    if (r.code !== 0) return null;
-    const buf = Buffer.from(r.stdout.trim(), 'base64');
-    if (buf.length > maxBytes) return null;
-    return buf.toString('utf-8');
+    const ad = await adapterFor(opts);
+    if (ad) return ad.readText(absPath, maxBytes, { userId: opts.userId ?? null });
   }
   try {
     return await fs.readFile(absPath, 'utf-8');
@@ -150,10 +124,8 @@ export async function hostReadText(absPath: string, maxBytes: number, opts: Host
 
 export async function hostWriteText(absPath: string, content: string, opts: HostOpts = {}): Promise<boolean> {
   if (await usingHost()) {
-    const b64 = Buffer.from(content, 'utf-8').toString('base64');
-    const cmd = `mkdir -p ${shellQuote(path.dirname(absPath))} && base64 -d > ${shellQuote(absPath)}`;
-    const r = await runOnHostStdin(cmd, b64, opts);
-    return r.code === 0;
+    const ad = await adapterFor(opts);
+    if (ad) return ad.writeText(absPath, content, { userId: opts.userId ?? null });
   }
   try {
     await fs.mkdir(path.dirname(absPath), { recursive: true });
@@ -166,8 +138,8 @@ export async function hostWriteText(absPath: string, content: string, opts: Host
 
 export async function hostDelete(absPath: string, opts: HostOpts = {}): Promise<boolean> {
   if (await usingHost()) {
-    const r = await runOnHost(`rm -rf ${shellQuote(absPath)}`, { ...opts, timeoutMs: 15_000 });
-    return r.code === 0;
+    const ad = await adapterFor(opts);
+    if (ad) return ad.remove(absPath, true, { userId: opts.userId ?? null });
   }
   try {
     const s = await fs.stat(absPath);
@@ -181,8 +153,8 @@ export async function hostDelete(absPath: string, opts: HostOpts = {}): Promise<
 
 export async function hostRename(from: string, to: string, opts: HostOpts = {}): Promise<boolean> {
   if (await usingHost()) {
-    const r = await runOnHost(`mv ${shellQuote(from)} ${shellQuote(to)}`, { ...opts, timeoutMs: 8000 });
-    return r.code === 0;
+    const ad = await adapterFor(opts);
+    if (ad) return ad.move(from, to, { userId: opts.userId ?? null });
   }
   try {
     await fs.rename(from, to);
@@ -194,12 +166,8 @@ export async function hostRename(from: string, to: string, opts: HostOpts = {}):
 
 export async function hostCreate(absPath: string, type: 'file' | 'folder', opts: HostOpts = {}): Promise<boolean> {
   if (await usingHost()) {
-    const cmd =
-      type === 'folder'
-        ? `mkdir -p ${shellQuote(absPath)}`
-        : `mkdir -p ${shellQuote(path.dirname(absPath))} && touch ${shellQuote(absPath)}`;
-    const r = await runOnHost(cmd, opts);
-    return r.code === 0;
+    const ad = await adapterFor(opts);
+    if (ad) return type === 'folder' ? ad.mkdir(absPath, true, { userId: opts.userId ?? null }) : ad.createFile(absPath, { userId: opts.userId ?? null });
   }
   try {
     if (type === 'folder') await fs.mkdir(absPath, { recursive: true });
@@ -215,10 +183,8 @@ export async function hostCreate(absPath: string, type: 'file' | 'folder', opts:
 
 export async function hostUploadBuffer(absPath: string, buf: Buffer, opts: HostOpts = {}): Promise<boolean> {
   if (await usingHost()) {
-    const b64 = buf.toString('base64');
-    const cmd = `mkdir -p ${shellQuote(path.dirname(absPath))} && base64 -d > ${shellQuote(absPath)}`;
-    const r = await runOnHostStdin(cmd, b64, opts);
-    return r.code === 0;
+    const ad = await adapterFor(opts);
+    if (ad) return ad.writeBytes(absPath, buf, { userId: opts.userId ?? null });
   }
   try {
     await fs.mkdir(path.dirname(absPath), { recursive: true });
@@ -231,49 +197,12 @@ export async function hostUploadBuffer(absPath: string, buf: Buffer, opts: HostO
 
 export async function hostReadBuffer(absPath: string, maxBytes: number, opts: HostOpts = {}): Promise<Buffer | null> {
   if (await usingHost()) {
-    const r = await runOnHost(
-      `head -c ${maxBytes + 1} ${shellQuote(absPath)} 2>/dev/null | base64 -w0`,
-      { ...opts, timeoutMs: 60_000 },
-    );
-    if (r.code !== 0) return null;
-    const buf = Buffer.from(r.stdout.trim(), 'base64');
-    if (buf.length > maxBytes) return null;
-    return buf;
+    const ad = await adapterFor(opts);
+    if (ad) return ad.readBytes(absPath, maxBytes, { userId: opts.userId ?? null });
   }
   try {
     return await fs.readFile(absPath);
   } catch {
     return null;
   }
-}
-
-// Helper: pipe stdin into an ssh exec — used for writes.
-async function runOnHostStdin(
-  command: string,
-  stdin: string,
-  opts: HostOpts = {},
-  timeoutMs = 60_000,
-): Promise<{ stdout: string; stderr: string; code: number }> {
-  const server = await getServerById(opts.serverId);
-  if (!server) return { stdout: '', stderr: 'No server configured', code: -1 };
-  const spec = await resolveSshSpec(server, opts.userId ?? null);
-  const args = sshArgs(spec, []);
-  args.push(command);
-  return new Promise((resolve) => {
-    const child = spawn('ssh', args);
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
-    child.stdout.on('data', (b) => (stdout += b.toString()));
-    child.stderr.on('data', (b) => (stderr += b.toString()));
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ stdout, stderr, code: code ?? -1 });
-    });
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      resolve({ stdout: '', stderr: err.message, code: -1 });
-    });
-    child.stdin.end(stdin);
-  });
 }

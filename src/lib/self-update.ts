@@ -106,6 +106,42 @@ export async function getUpdateStatus(): Promise<UpdateStatus> {
 }
 
 export async function applyUpdate(): Promise<{ accepted: true; note: string }> {
+  // v1.8.0: when the panel runs natively on Windows, there's no Docker
+  // compose to bounce — we download the new release zip and restart the
+  // Windows Service via PowerShell. (The Service restart re-execs node
+  // against the freshly-unpacked files.)
+  if (process.platform === 'win32') {
+    const ps = `
+$ErrorActionPreference='Stop'
+$apiUrl = 'https://api.github.com/repos/cachenetworks/cachepanel/releases/latest'
+$rel = Invoke-RestMethod -Uri $apiUrl -UseBasicParsing
+$asset = $rel.assets | Where-Object { $_.name -like 'cachepanel-*-win.zip' } | Select-Object -First 1
+if (-not $asset) { Write-Error 'no win zip in release'; exit 1 }
+$zip = Join-Path $env:TEMP $asset.name
+Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -UseBasicParsing
+$installDir = $env:CP_INSTALL_DIR
+if (-not $installDir) { $installDir = 'C:\\Program Files\\CachePanel' }
+Stop-Service CachePanel -ErrorAction SilentlyContinue
+Expand-Archive -Path $zip -DestinationPath $installDir -Force
+Push-Location $installDir
+npm install --omit=dev --no-audit --no-fund | Out-Null
+npx prisma migrate deploy | Out-Null
+Pop-Location
+Start-Service CachePanel
+`;
+    // Spawn a detached PowerShell so we return before the service restart
+    // kills our own process. (Same fire-and-forget shape as Linux.)
+    const { spawn } = await import('node:child_process');
+    spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+      detached: true,
+      stdio: 'ignore',
+    }).unref();
+    return {
+      accepted: true,
+      note: 'Update started. The Windows Service will restart in ~60s. Refresh the page after that.',
+    };
+  }
+
   const primary = await prisma.server.findFirst({ where: { isPrimary: true } });
   if (!primary) throw new Error('No primary server registered');
   const composeDir = process.env.CP_COMPOSE_DIR || '/opt/cachepanel';

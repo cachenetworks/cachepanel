@@ -29,6 +29,11 @@ const bodySchema = z.object({
   keyName: z.string().min(1).max(255),
   tags: z.string().max(255).optional(),
   notes: z.string().max(1024).optional(),
+  // v1.8.0: explicit OS pick from the Add-Server wizard. "auto" → run the
+  // uname-or-ver probe and store the result. "linux"/"windows" → trust the
+  // user (handy for OpenSSH-on-Windows boxes where the default shell trips
+  // the probe).
+  os: z.enum(['auto', 'linux', 'windows']).optional(),
 });
 
 function sshKeyscan(hostname: string, port: number): Promise<{ ok: boolean; output: string; error?: string }> {
@@ -111,13 +116,55 @@ interface RemoteDockerCheck {
   fixHint?: string;
 }
 
+// Generic SSH-exec helper that takes a shell snippet. Same shape as
+// trySshOnce() above but with an arbitrary command instead of the fixed
+// `echo OK; ...` probe. Used for the OS-detection round trip.
+function trySshOnceCmd(
+  opts: { hostname: string; port: number; user: string; keyPath: string; knownHostsPath: string },
+  cmd: string,
+): Promise<{ ok: boolean; output: string; error?: string }> {
+  return new Promise((resolve) => {
+    const child = spawn('ssh', [
+      '-i', opts.keyPath,
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=5',
+      '-o', 'StrictHostKeyChecking=yes',
+      '-o', `UserKnownHostsFile=${opts.knownHostsPath}`,
+      '-p', String(opts.port),
+      `${opts.user}@${opts.hostname}`,
+      cmd,
+    ]);
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => child.kill('SIGKILL'), 8000);
+    child.stdout.on('data', (b) => (out += b.toString()));
+    child.stderr.on('data', (b) => (err += b.toString()));
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve({ ok: true, output: out });
+      else resolve({ ok: false, output: out, error: err.trim() || `ssh exited ${code}` });
+    });
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, output: '', error: e.message });
+    });
+  });
+}
+
 function probeRemoteDocker(opts: {
   hostname: string;
   port: number;
   user: string;
   keyPath: string;
   knownHostsPath: string;
+  os?: 'linux' | 'windows' | 'unknown';
 }): Promise<RemoteDockerCheck> {
+  // Windows uses a totally different probe — Docker Desktop's named pipe
+  // and `docker.exe` invocation. Fork early.
+  if (opts.os === 'windows') {
+    return probeRemoteDockerWindows(opts);
+  }
+
   // One shell pipeline so we only pay one SSH round-trip. The script writes
   // a small key=value blob we parse back.
   // - SOCK_EXISTS: 0/1 from `test -S`
@@ -220,6 +267,109 @@ printf 'SOCK_EXISTS=%s\\nSOCK_GID=%s\\nDOCKER_OUT=%s\\nDOCKER_RC=%s\\nDOCKER_ERR
   });
 }
 
+// Windows variant of the Docker probe. Runs a PowerShell one-liner over SSH
+// (assumes OpenSSH Server defaults — cmd.exe is the login shell, so we
+// explicitly invoke pwsh/powershell.exe with -EncodedCommand). Returns the
+// same RemoteDockerCheck shape so the wizard renders the result identically.
+function probeRemoteDockerWindows(opts: {
+  hostname: string;
+  port: number;
+  user: string;
+  keyPath: string;
+  knownHostsPath: string;
+}): Promise<RemoteDockerCheck> {
+  // PS one-liner: try `docker version --format '{{json .Server}}'`. If it
+  // fails, decide what failed. We can't stat a named pipe the way Linux
+  // can stat a unix socket, so the failure-mode classification leans on the
+  // error string.
+  const ps = `try {
+  $j = docker version --format '{{json .Server}}' 2>&1
+  if ($LASTEXITCODE -eq 0) {
+    Write-Output ("OK|" + $j)
+  } else {
+    $msg = ($j | Out-String).Trim()
+    Write-Output ("ERR|" + $msg)
+  }
+} catch {
+  Write-Output ("ERR|" + $_.Exception.Message)
+}`;
+  const encoded = Buffer.from(ps, 'utf-16le').toString('base64');
+  const cmd = `where.exe pwsh >nul 2>&1 && (pwsh -NoProfile -NonInteractive -EncodedCommand ${encoded}) || (powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encoded})`;
+
+  return new Promise((resolve) => {
+    const child = spawn('ssh', [
+      '-i', opts.keyPath,
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=5',
+      '-o', 'StrictHostKeyChecking=yes',
+      '-o', `UserKnownHostsFile=${opts.knownHostsPath}`,
+      '-p', String(opts.port),
+      `${opts.user}@${opts.hostname}`,
+      cmd,
+    ]);
+    let out = '';
+    let err = '';
+    const timer = setTimeout(() => child.kill('SIGKILL'), 12000);
+    child.stdout.on('data', (b) => (out += b.toString()));
+    child.stderr.on('data', (b) => (err += b.toString()));
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        resolve({ ok: false, stage: 'ssh-failed', message: `SSH probe failed: ${err.trim() || `exit ${code}`}` });
+        return;
+      }
+      const line = out.trim();
+      if (line.startsWith('OK|')) {
+        try {
+          const j = JSON.parse(line.slice(3)) as { Version?: string; ApiVersion?: string };
+          resolve({
+            ok: true,
+            stage: 'connected',
+            version: j.Version ?? '?',
+            message: `Docker ${j.Version ?? ''} reachable as ${opts.user} on Windows.`,
+          });
+          return;
+        } catch {
+          resolve({ ok: false, stage: 'unknown', message: 'docker version returned malformed JSON.' });
+          return;
+        }
+      }
+      const msg = line.startsWith('ERR|') ? line.slice(4) : line;
+      if (/not recognized|CommandNotFoundException|is not recognized as the name of a cmdlet/i.test(msg)) {
+        resolve({
+          ok: false,
+          stage: 'no-docker',
+          message: `docker.exe isn't installed (or not on PATH) for ${opts.user} on ${opts.hostname}.`,
+          fixHint: `winget install -e --id Docker.DockerDesktop`,
+        });
+        return;
+      }
+      if (/access is denied|permission|docker_engine.*denied|cannot connect/i.test(msg)) {
+        resolve({
+          ok: false,
+          stage: 'permission-denied',
+          message: `${opts.user} can't access the Docker named pipe. Add them to the docker-users group on Windows.`,
+          fixHint: `Add-LocalGroupMember -Group 'docker-users' -Member '${opts.user}'`,
+        });
+        return;
+      }
+      if (/cannot connect.*pipe|engine.*not.*running|in the default daemon configuration/i.test(msg)) {
+        resolve({
+          ok: false,
+          stage: 'no-socket',
+          message: `Docker Desktop isn't running on ${opts.hostname}. Start it from the system tray, then re-test.`,
+        });
+        return;
+      }
+      resolve({ ok: false, stage: 'unknown', message: msg || 'docker probe returned no output.' });
+    });
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, stage: 'ssh-failed', message: e.message });
+    });
+  });
+}
+
 function parseKv(s: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const line of s.split('\n')) {
@@ -239,7 +389,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid body', issues: parsed.error.issues }, { status: 400 });
   }
-  const { name, hostname, port = 22, defaultUser, keyName, tags = '', notes = '' } = parsed.data;
+  const { name, hostname, port = 22, defaultUser, keyName, tags = '', notes = '', os: osPick = 'auto' } = parsed.data;
 
   const keyPath = path.join(SECRETS_DIR, keyName);
   if (!fs.existsSync(keyPath)) {
@@ -278,6 +428,24 @@ export async function POST(req: Request) {
     );
   }
 
+  // OS detection: run uname-or-ver if the wizard picked "auto", otherwise
+  // trust the explicit selection. Stored on the Server row so every
+  // subsequent runOnHost call routes through the right adapter.
+  let detectedOs: 'linux' | 'windows' | 'unknown' = 'unknown';
+  if (osPick === 'linux' || osPick === 'windows') {
+    detectedOs = osPick;
+  } else {
+    const osProbe = await trySshOnceCmd(
+      { hostname, port, user: defaultUser, keyPath, knownHostsPath },
+      `uname -s 2>/dev/null && exit 0 || ver`,
+    );
+    if (osProbe.ok) {
+      const t = osProbe.output.trim();
+      if (/^Linux\b|^Darwin\b|^FreeBSD\b|^OpenBSD\b|^NetBSD\b/i.test(t)) detectedOs = 'linux';
+      else if (/Microsoft Windows|Windows \[Version/i.test(t)) detectedOs = 'windows';
+    }
+  }
+
   // SSH works — probe the remote docker daemon as a separate, non-fatal check.
   // We surface the result to the wizard so the user can see + fix it before
   // closing the dialog, but we never block server creation on a docker
@@ -288,6 +456,7 @@ export async function POST(req: Request) {
     user: defaultUser,
     keyPath,
     knownHostsPath,
+    os: detectedOs,
   });
 
   // Persist the Server row.
@@ -304,6 +473,10 @@ export async function POST(req: Request) {
         tags,
         notes: notes || null,
         addedById: auth.user.id,
+        // v1.8.0: persist detected (or user-picked) OS. "unknown" → adapter
+        // dispatch defaults to Linux, which is the historical behavior and
+        // safe; the next user-initiated action will retry detection.
+        os: detectedOs,
       },
     });
     resetUsingHostCache();
@@ -318,7 +491,7 @@ export async function POST(req: Request) {
     userId: auth.user.id,
     action: 'settings.changed',
     target: `server:${created.id}`,
-    metadata: { event: 'server.created.via_wizard', name, hostname },
+    metadata: { event: 'server.created.via_wizard', name, hostname, os: detectedOs },
     ipAddress: getClientIp(req),
   });
 
@@ -350,6 +523,7 @@ export async function GET(req: Request) {
     user: spec.user,
     keyPath: spec.keyPath,
     knownHostsPath: spec.knownHosts,
+    os: (server.os as 'linux' | 'windows' | 'unknown' | undefined) ?? 'unknown',
   });
   return NextResponse.json({ dockerCheck });
 }

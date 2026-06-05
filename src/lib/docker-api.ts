@@ -1,10 +1,17 @@
-// Talk to the local Docker daemon directly over its unix socket.
+// Talk to the local Docker daemon directly over its unix socket (Linux) or
+// Windows named pipe (when the panel is installed natively on Windows).
 // Avoids systeminformation's partial-data quirks and works as long as the
-// container can read /var/run/docker.sock.
+// container can read the daemon endpoint.
 
 import http from 'node:http';
 
-const SOCKET_PATH = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
+// v1.8.0: pick the right transport endpoint at module load. Both unix
+// sockets and Windows named pipes are addressable via http.request's
+// `socketPath` option — Node passes whatever string you give to its
+// platform-specific connect() — so we only need to switch the path.
+const SOCKET_PATH =
+  process.env.DOCKER_SOCKET ||
+  (process.platform === 'win32' ? '//./pipe/docker_engine' : '/var/run/docker.sock');
 
 function request<T>(path: string, method = 'GET'): Promise<T> {
   return new Promise((resolve, reject) => {

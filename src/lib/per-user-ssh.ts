@@ -9,6 +9,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { runOnHost, isSshConfigured } from './host-probe';
 import { getServerById, resolveSshSpec, sshArgs } from './servers';
+import { getAdapter } from './host-adapter';
 
 const SECRETS_BASE = process.env.PER_USER_SECRETS_DIR || '/run/secrets-users';
 // scripts/ inside the container is shipped via the Dockerfile.
@@ -128,12 +129,53 @@ async function runProvisionScript(
   return { ok: r.code === 0, stdout: r.stdout, stderr: r.stderr };
 }
 
+// OS-aware username validation. Windows allows almost anything except a small
+// reserved set; we use a tighter rule (letters, digits, `_`, `-`, `.`, 1-20
+// chars) so we don't accidentally create accounts that break shell quoting.
+function isValidWindowsUsername(name: string): boolean {
+  return /^[A-Za-z0-9._-]{1,20}$/.test(name) && !/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(name);
+}
+
+async function getServerOs(serverId: string | null | undefined): Promise<'linux' | 'windows'> {
+  const server = await getServerById(serverId ?? null);
+  return ((server?.os ?? 'linux') === 'windows' ? 'windows' : 'linux');
+}
+
 export async function provisionUserOnHost(opts: {
   username: string;
   pubkey: string;
   sudo: boolean;
   serverId?: string | null;
 }): Promise<{ ok: boolean; message: string }> {
+  const os = await getServerOs(opts.serverId);
+
+  if (os === 'windows') {
+    if (!isValidWindowsUsername(opts.username)) {
+      return { ok: false, message: `Invalid Windows username: ${opts.username}` };
+    }
+    const server = await getServerById(opts.serverId ?? null);
+    if (!server) return { ok: false, message: 'No server configured' };
+    const adapter = await getAdapter(server);
+    const created = await adapter.addUser(opts.username);
+    if (created.code !== 0) {
+      return { ok: false, message: `New-LocalUser failed: ${created.stderr || created.stdout}` };
+    }
+    const keyed = await adapter.appendAuthorizedKey(opts.username, opts.pubkey);
+    if (keyed.code !== 0) {
+      return { ok: false, message: `authorized_keys append failed: ${keyed.stderr || keyed.stdout}` };
+    }
+    // "sudo" maps to local Administrators group membership on Windows.
+    if (opts.sudo) {
+      const adm = await adapter.runScript(
+        `Add-LocalGroupMember -Group 'Administrators' -Member '${opts.username.replace(/'/g, "''")}' -ErrorAction SilentlyContinue`,
+      );
+      if (adm.code !== 0) {
+        return { ok: false, message: `Administrators group add failed: ${adm.stderr || adm.stdout}` };
+      }
+    }
+    return { ok: true, message: `Provisioned Windows local user ${opts.username}.` };
+  }
+
   if (!isValidLinuxUsername(opts.username)) {
     return { ok: false, message: `Invalid Linux username: ${opts.username}` };
   }
@@ -146,6 +188,17 @@ export async function provisionUserOnHost(opts: {
 }
 
 export async function disableUserOnHost(username: string, serverId?: string | null): Promise<{ ok: boolean; message: string }> {
+  const os = await getServerOs(serverId);
+  if (os === 'windows') {
+    if (!isValidWindowsUsername(username)) return { ok: false, message: `Invalid Windows username: ${username}` };
+    const server = await getServerById(serverId ?? null);
+    if (!server) return { ok: false, message: 'No server configured' };
+    const adapter = await getAdapter(server);
+    const r = await adapter.runScript(
+      `Disable-LocalUser -Name '${username.replace(/'/g, "''")}' -ErrorAction SilentlyContinue`,
+    );
+    return { ok: r.code === 0, message: r.stderr || r.stdout || `disabled ${username}` };
+  }
   if (!isValidLinuxUsername(username)) {
     return { ok: false, message: `Invalid Linux username: ${username}` };
   }
@@ -154,6 +207,17 @@ export async function disableUserOnHost(username: string, serverId?: string | nu
 }
 
 export async function deleteUserOnHost(username: string, serverId?: string | null): Promise<{ ok: boolean; message: string }> {
+  const os = await getServerOs(serverId);
+  if (os === 'windows') {
+    if (!isValidWindowsUsername(username)) return { ok: false, message: `Invalid Windows username: ${username}` };
+    const server = await getServerById(serverId ?? null);
+    if (!server) return { ok: false, message: 'No server configured' };
+    const adapter = await getAdapter(server);
+    const r = await adapter.runScript(
+      `Remove-LocalUser -Name '${username.replace(/'/g, "''")}' -ErrorAction SilentlyContinue`,
+    );
+    return { ok: r.code === 0, message: r.stderr || r.stdout || `removed ${username}` };
+  }
   if (!isValidLinuxUsername(username)) {
     return { ok: false, message: `Invalid Linux username: ${username}` };
   }
@@ -161,8 +225,15 @@ export async function deleteUserOnHost(username: string, serverId?: string | nul
   return { ok: r.ok, message: r.stderr || r.stdout };
 }
 
-// Quick host-side probe: does the Linux account currently exist?
+// Quick host-side probe: does the (Linux/Windows) account currently exist?
 export async function userExistsOnHost(username: string, serverId?: string | null): Promise<boolean> {
+  const os = await getServerOs(serverId);
+  if (os === 'windows') {
+    const server = await getServerById(serverId ?? null);
+    if (!server) return false;
+    const adapter = await getAdapter(server);
+    return adapter.userExists(username);
+  }
   const r = await runOnHost(`getent passwd ${JSON.stringify(username)} >/dev/null && echo y || echo n`, { serverId });
   return r.code === 0 && r.stdout.trim() === 'y';
 }

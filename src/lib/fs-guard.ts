@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import { getEnv } from './env';
 
 const SENSITIVE_FILENAMES = new Set([
+  // POSIX
   'shadow',
   'gshadow',
   'sudoers',
@@ -11,9 +12,29 @@ const SENSITIVE_FILENAMES = new Set([
   'id_ecdsa',
   'id_dsa',
   'authorized_keys',
+  // Windows (case-insensitive matching handled separately below)
+  'sam',
+  'security',
+  'system',
+  'ntds.dit',
 ]);
 
-const SENSITIVE_DIRS = ['/etc/shadow', '/etc/sudoers.d', '/root/.ssh'];
+const SENSITIVE_DIRS = [
+  // POSIX
+  '/etc/shadow',
+  '/etc/sudoers.d',
+  '/root/.ssh',
+  // Windows — the registry hive files + AD database. These are usually
+  // locked open by the OS but we block by path regardless so a slip
+  // doesn't expose them.
+  'C:\\Windows\\System32\\config',
+  'C:\\Windows\\NTDS',
+];
+
+// Case-insensitive variant of SENSITIVE_FILENAMES for Windows comparisons.
+const SENSITIVE_FILENAMES_LOWER = new Set(
+  Array.from(SENSITIVE_FILENAMES).map((s) => s.toLowerCase()),
+);
 
 export class FsGuardError extends Error {
   public readonly status: number;
@@ -104,10 +125,22 @@ export function resolveSafePath(input: string, opts: ResolveOptions): ResolvedPa
     throw new FsGuardError('Path is outside the allowed file roots.', 403);
   }
   const basename = path.basename(abs);
-  if (SENSITIVE_DIRS.some((d) => abs === d || abs.startsWith(d + path.sep))) {
+  // Block on both POSIX (exact match) and Windows (case-insensitive +
+  // backslash-or-forward-slash separator). The Windows entries in
+  // SENSITIVE_DIRS use backslashes; matching against an absolute path
+  // resolved through node:path on Windows yields backslashes too.
+  if (
+    SENSITIVE_DIRS.some(
+      (d) =>
+        abs === d ||
+        abs.toLowerCase() === d.toLowerCase() ||
+        abs.startsWith(d + path.sep) ||
+        abs.toLowerCase().startsWith(d.toLowerCase() + path.sep),
+    )
+  ) {
     throw new FsGuardError('Access to this path is blocked.', 403);
   }
-  if (SENSITIVE_FILENAMES.has(basename)) {
+  if (SENSITIVE_FILENAMES_LOWER.has(basename.toLowerCase())) {
     throw new FsGuardError('Access to this file is blocked.', 403);
   }
   const isDotenv = basename === '.env' || basename.startsWith('.env.');

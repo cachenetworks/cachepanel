@@ -757,6 +757,7 @@ interface ProvisionResult {
   zone?: string;
   dockerCmd?: string | null;
   debianCmd?: string | null;
+  windowsCmd?: string | null;
 }
 
 function CloudflareStep({
@@ -980,6 +981,7 @@ function ProvisionPanel({ result }: { result: ProvisionResult }) {
           </p>
           {result.dockerCmd ? <CommandBlock label="docker" command={result.dockerCmd} /> : null}
           {result.debianCmd ? <CommandBlock label="systemd (cloudflared package)" command={result.debianCmd} /> : null}
+          {result.windowsCmd ? <CommandBlock label="windows (cloudflared.exe)" command={result.windowsCmd} /> : null}
           <p className="text-[11px] text-foreground-subtle">
             Once the connector is running, <code>{result.hostname}</code> will resolve to this
             machine via Cloudflare. The connector token is also shown in your Cloudflare

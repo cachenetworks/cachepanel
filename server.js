@@ -270,6 +270,11 @@ function clientIp(req) {
             user,
             keyPath,
             knownHosts: lookupSecret(serverRecord.knownHostsName),
+            // v1.8.0: pass through OS + shell override so the SSH spawn can
+            // append the right remote command for Windows hosts (pwsh/
+            // powershell.exe) instead of relying on the default shell.
+            os: serverRecord.os || 'unknown',
+            shellPath: serverRecord.shellPath || null,
           };
         }
       } catch (err) {
@@ -340,6 +345,22 @@ function clientIp(req) {
         return;
       }
       shellArgs.push(`${useSpec.user}@${useSpec.host}`);
+
+      // v1.8.0: for Windows-detected hosts, append the remote shell so we
+      // get pwsh / powershell.exe instead of cmd.exe (OpenSSH Server's
+      // default). xterm.js doesn't care about the shell, but the user
+      // experience is night-and-day better in PowerShell.
+      if ((useSpec.os || 'unknown') === 'windows') {
+        const remoteShell = useSpec.shellPath || 'pwsh';
+        if (remoteShell === 'pwsh') {
+          // Two-stage fallback chain — same trick the adapter uses.
+          shellArgs.push(
+            'where.exe pwsh >nul 2>&1 && pwsh -NoLogo || powershell.exe -NoLogo',
+          );
+        } else {
+          shellArgs.push(`${remoteShell} -NoLogo`);
+        }
+      }
     } else {
       // Local-container mode. If TERMINAL_USER differs from the current
       // process user, drop into that account via sudo.

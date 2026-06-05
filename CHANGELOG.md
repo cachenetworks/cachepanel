@@ -2,6 +2,103 @@
 
 All notable changes to CachePanel.
 
+## v1.8.0 — 2026-06-03
+
+**Windows support — both as a managed host AND as the panel's own host.**
+
+Previously every managed server had to be Linux: file ops used `stat -c`,
+`find -printf`, `crontab`; user provisioning shelled to `useradd`; the
+local Docker daemon was hardcoded to `/var/run/docker.sock`; the
+installer was bash-only. This release adds full Windows support without
+changing any behaviour for existing Linux installs.
+
+### Added — Windows as a managed host
+- **`RemoteHostAdapter` interface** in `src/lib/host-adapter.ts` with
+  one method per command family (listDir, stat, readBytes, writeBytes,
+  mkdir, remove, move, scheduled-jobs ops, user provisioning, snapshot,
+  GPU, Docker socket, escape-hatch). The rest of the codebase routes
+  through `getAdapter(server)` so it doesn't care which OS the target
+  runs.
+- **`adapters/linux.ts`** wraps the historical POSIX commands — same
+  byte-for-byte behaviour for existing installs.
+- **`adapters/windows.ts`** — PowerShell-based implementations. Prefers
+  `pwsh`, falls back to `powershell.exe`. Uses `-EncodedCommand` so
+  quoting never has to survive the SSH shell layer twice. Output is
+  JSON via `ConvertTo-Json` so the panel parses one shape regardless of OS.
+- **`Server.os` + `Server.shellPath` columns** (Prisma migration
+  `20260603000000_server_os`). `os` is `linux` | `windows` | `unknown`,
+  populated by `detectOs()` running `uname || ver` on first connect.
+- **Add-Server wizard OS picker** — Auto-detect (default), Linux, or
+  Windows. Auto-detect runs the probe during finalize. Windows-selected
+  path swaps field labels and hints at OpenSSH Server install.
+- **Per-host Docker-check Windows branch** — `probeRemoteDockerWindows`
+  runs `docker version --format` via PowerShell `-EncodedCommand`,
+  classifies failures into `no-docker` / `permission-denied` /
+  `no-socket` and emits Windows-flavoured fix hints
+  (`Add-LocalGroupMember -Group docker-users`, `winget install Docker.DockerDesktop`).
+- **Scheduled jobs on Windows** translate to Task Scheduler entries
+  under `\\CachePanel\\<tag>` via `Register-ScheduledTask`. Common cron
+  patterns (`*/N * * * *`, `M H * * *`) map to native triggers; exotic
+  expressions fall back to a 1-minute polling trigger.
+- **Per-user provisioning Windows branch** — `New-LocalUser`,
+  `Add-LocalGroupMember docker-users`, ACL-tightened
+  `authorized_keys` under `C:\Users\<user>\.ssh\`.
+- **System probe Windows variant** — `Get-CimInstance Win32_OperatingSystem`
+  / `Win32_LogicalDisk` / `Win32_Processor` / `Win32_VideoController`
+  for CPU/RAM/disk/GPU in one round trip.
+- **Browser terminal on Windows hosts** — server.js detects
+  `useSpec.os === 'windows'` and appends `pwsh / powershell.exe` to the
+  SSH command so the user gets PowerShell instead of cmd.exe.
+
+### Added — Windows as the panel's own host
+- **`src/lib/paths.ts`** — `getDataDir()` / `getSecretsDir()` /
+  `getRuntimeSecretsDir()` / `getPerUserSecretsDir()` / `getLogsDir()`.
+  Linux container defaults to `/app/data`, `/run/secrets`; Windows
+  defaults to `%PROGRAMDATA%\CachePanel\…`.
+- **`src/lib/file-perms.ts`** — `ownerOnly()` /  `ownerOnlyDir()`
+  abstracting POSIX modes vs. `icacls.exe`.
+- **Windows-aware sensitive-file blocklist** in `fs-guard.ts` —
+  `C:\Windows\System32\config`, `C:\Windows\NTDS`, registry hive names
+  (`SAM`, `SYSTEM`, `SECURITY`, `ntds.dit`). Case-insensitive match.
+- **`docker-api.ts` named-pipe branch** — when the panel itself runs on
+  Windows, `SOCKET_PATH` defaults to `\\.\pipe\docker_engine`. Node's
+  `http.request({ socketPath })` accepts named pipes natively, so no
+  other changes needed.
+- **`install-cachepanel.ps1`** — native Windows installer that:
+  installs Node.js LTS + OpenSSH Server + Docker Desktop (all via
+  winget), creates `C:\ProgramData\CachePanel\…` with locked ACLs,
+  downloads the latest release zip, writes a 6-line `.env`, and
+  registers a `CachePanel` Windows Service via NSSM (Scheduled Task
+  fallback).
+- **`/api/setup/fix-docker?fmt=ps1`** — PowerShell variant of the
+  Docker auto-fix script. Installs Docker Desktop, adds the current
+  user to `docker-users`, restarts the CachePanel Service.
+- **Self-updater Windows branch** — `applyUpdate()` on `win32` spawns
+  detached PowerShell that downloads the new release zip, stops the
+  Service, expands, runs `npm install` + `prisma migrate deploy`,
+  starts the Service again.
+- **Cloudflare-tunnel Windows command** — provisioner now returns
+  `windowsCmd` (`cloudflared.exe service install <token>`) alongside
+  `dockerCmd` and `debianCmd`.
+
+### Changed
+- `runOnHostStdin` moved from `host-fs.ts` to `host-probe.ts` so both
+  adapter modules can share it without circular deps.
+- `docker-remote.ts` now swaps single quotes for double quotes on
+  Windows-targeted commands (cmd.exe interprets single-quoted args
+  literally; double quotes work on both shells).
+- `host-fs.ts` `usingHost()` retained from v1.7.6, every helper now
+  routes through `getAdapter(server)` instead of inlining commands.
+
+### Notes
+- Existing Linux installs are unaffected — the `os` column defaults
+  to `unknown`, which the adapter dispatcher treats as Linux. The
+  next user-initiated probe flips it to `linux`.
+- Full Windows-host parity for some advanced cases (NVIDIA GPU live
+  stats, complex cron expressions, one-click apps with bind mounts
+  that assume POSIX paths) is best-effort in this release; tracking
+  follow-ups in v1.8.1+.
+
 ## v1.7.7 — 2026-06-02
 
 ### Added

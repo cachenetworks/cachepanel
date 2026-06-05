@@ -1,11 +1,16 @@
 import { prisma } from './prisma';
 import { runOnHost } from './host-probe';
+import { getServerById } from './servers';
+import { getAdapter } from './host-adapter';
 
-// Sync the DB's view of cron jobs onto a server's crontab.
+// Sync the DB's view of scheduled jobs onto a server.
 //
-// Strategy: for the target server, read the current crontab, strip every line
-// tagged `# cachepanel:*`, re-append all the DB rows (only the enabled ones),
-// write back. Idempotent + non-destructive to user-edited lines.
+// Linux: read crontab, strip every line tagged `# cachepanel:*`, re-append all
+// enabled rows, write back. Idempotent + non-destructive to user-edited lines.
+//
+// Windows (v1.8.0+): no crontab to bulk-sync. We iterate DB rows and call
+// the adapter's upsertScheduledJob() per-job (Task Scheduler entry under
+// \\CachePanel\\<tag>). Deletes call deleteScheduledJob() with the tag.
 
 const TAG_PREFIX = '# cachepanel:';
 
@@ -30,7 +35,20 @@ export class ScheduleError extends Error {
 }
 
 export async function syncCrontab(serverId: string): Promise<void> {
+  const server = await getServerById(serverId);
+  if (!server) throw new ScheduleError('Unknown server', 404);
   const jobs = await prisma.scheduledJob.findMany({ where: { serverId } });
+
+  if ((server.os ?? 'linux') === 'windows') {
+    return syncWindowsScheduledTasks(serverId, jobs);
+  }
+  return syncPosixCrontab(serverId, jobs);
+}
+
+async function syncPosixCrontab(
+  serverId: string,
+  jobs: Awaited<ReturnType<typeof prisma.scheduledJob.findMany>>,
+): Promise<void> {
   // Read existing crontab; missing/empty crontab is fine.
   const cur = await runOnHost('crontab -l 2>/dev/null', { serverId, timeoutMs: 8000 });
   const existingLines = (cur.code === 0 ? cur.stdout : '').split('\n');
@@ -68,7 +86,44 @@ export async function syncCrontab(serverId: string): Promise<void> {
   }
 }
 
+async function syncWindowsScheduledTasks(
+  serverId: string,
+  jobs: Awaited<ReturnType<typeof prisma.scheduledJob.findMany>>,
+): Promise<void> {
+  const server = await getServerById(serverId);
+  if (!server) throw new ScheduleError('Unknown server', 404);
+  const adapter = await getAdapter(server);
+  if (!adapter.upsertScheduledJob || !adapter.deleteScheduledJob) {
+    throw new ScheduleError('Adapter for this OS does not implement scheduled jobs', 501);
+  }
+  // Upsert enabled jobs; we don't try to discover orphans here — the panel
+  // owns its tag namespace, and the route layer calls removeFromCrontab when
+  // a job is deleted in the DB. (Future: add a /reconcile that diffs against
+  // Get-ScheduledTask.)
+  for (const j of jobs) {
+    if (!j.enabled) {
+      await adapter.deleteScheduledJob(j.id);
+      continue;
+    }
+    if (!isReasonableCron(j.cronExpr)) continue;
+    await adapter.upsertScheduledJob({
+      tag: j.id,
+      cron: j.cronExpr,
+      command: j.command.replace(/[\r\n]/g, ' '),
+    });
+  }
+}
+
 export async function removeFromCrontab(serverId: string, jobId: string): Promise<void> {
+  const server = await getServerById(serverId);
+  if (!server) return;
+
+  if ((server.os ?? 'linux') === 'windows') {
+    const adapter = await getAdapter(server);
+    if (adapter.deleteScheduledJob) await adapter.deleteScheduledJob(jobId);
+    return;
+  }
+
   const cur = await runOnHost('crontab -l 2>/dev/null', { serverId, timeoutMs: 8000 });
   const existingLines = (cur.code === 0 ? cur.stdout : '').split('\n');
   const kept: string[] = [];

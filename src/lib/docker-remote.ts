@@ -33,7 +33,17 @@ interface RemoteRunOpts {
 }
 
 async function runDocker(args: string, opts: RemoteRunOpts) {
-  return runOnHost(`docker ${args}`, {
+  // OpenSSH on Windows defaults to cmd.exe, which interprets single quotes
+  // literally. `docker --format '{{json .}}'` works on bash but cmd passes
+  // the literal string including the quotes to docker, which then misparses
+  // the template. Swap single quotes for double quotes on Windows servers —
+  // docker on Windows accepts both, and cmd handles double-quote escaping
+  // the way you'd expect. Linux stays untouched.
+  let cmd = `docker ${args}`;
+  if ((opts.server.os ?? 'linux') === 'windows') {
+    cmd = cmd.replace(/'/g, '"');
+  }
+  return runOnHost(cmd, {
     serverId: opts.server.id,
     userId: opts.userId,
     timeoutMs: opts.timeoutMs ?? 8000,
