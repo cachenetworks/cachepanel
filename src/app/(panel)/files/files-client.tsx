@@ -48,7 +48,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/components/ui/toaster';
-import { formatBytes, formatRelative } from '@/lib/utils';
+import { cn, formatBytes, formatRelative } from '@/lib/utils';
 import { useServer, withServer } from '@/components/layout/server-context';
 
 interface Item {
